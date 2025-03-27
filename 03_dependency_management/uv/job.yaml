@@ -43,9 +43,10 @@ env_vars:
 # When empty, this uses the default Anyscale Cloud in your organization.
 cloud:
 
-# The script to run in your job. You can also do "uv run main.py" if you have a
-# pyproject.toml file in your working_dir.
-entrypoint: uv run --with emoji main.py
+# The script to run in your job. This picks up the dependencies from the
+# pyproject.toml file in your working_dir. The worker processes will also
+# run with the same uv run command.
+entrypoint: uv run main.py
 
 # If there is an error, do not retry.
 max_retries: 0
