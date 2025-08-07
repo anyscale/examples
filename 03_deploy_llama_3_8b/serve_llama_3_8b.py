@@ -10,7 +10,7 @@ llm_config = LLMConfig(
     accelerator_type="A10G",
     deployment_config=dict(
         autoscaling_config=dict(
-            min_replicas=2, max_replicas=2,
+            min_replicas=1, max_replicas=2,
         )
     ),
     # We need to share our Hugging Face Token to the workers so they can access the gated Llama 3
@@ -28,7 +28,5 @@ llm_config = LLMConfig(
 deployment = LLMServer.as_deployment(llm_config.get_serve_options(name_prefix="vLLM:")).bind(llm_config)
 app = LLMRouter.as_deployment().bind([deployment])
 
-## Alternatively, use the builder method directly on the LLMConfig
-# app = build_openai_app({"llm_configs": [llm_config]})
-
+# Uncomment the below line to run the service locally with Python.
 # serve.run(app, blocking=True)
