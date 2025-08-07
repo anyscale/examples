@@ -1,4 +1,4 @@
-import os
+from urllib.parse import urljoin
 from openai import OpenAI
 
 # The "anyscale service deploy" script outputs a line that looks like
@@ -9,7 +9,7 @@ from openai import OpenAI
 token = <SERVICE_TOKEN>  # Fill this in. If deploying and querying locally, use token = "FAKE_KEY"
 base_url = <BASE_URL>  # Fill this in. If deploying and querying locally, use base_url = "http://localhost:8000"
 
-client = OpenAI(base_url=os.path.join(base_url, "v1"), api_key=token)
+client = OpenAI(base_url= urljoin(base_url, "v1"), api_key=token)
 
 response = client.chat.completions.create(
     model="my-llama-3-8B",
