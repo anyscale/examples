@@ -7,7 +7,7 @@ llm_config = LLMConfig(
         model_id="my-llama-3-8B",
         model_source="meta-llama/Meta-Llama-3-8B-Instruct",
     ),
-    accelerator_type="A10G",
+    accelerator_type="L4",
     deployment_config=dict(
         autoscaling_config=dict(
             min_replicas=1, max_replicas=2,
