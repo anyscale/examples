@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urljoin
 import requests
 
 # The "anyscale service deploy" script outputs a line that looks like
@@ -10,7 +11,7 @@ token = <SERVICE_TOKEN>  # Fill this in.
 base_url = <BASE_URL>  # Fill this in.
 
 resp = requests.get(
-    os.path.join(base_url, "hello"),
+    urljoin(base_url, "hello"),
     params={"name": "Theodore"},
     headers={"Authorization": f"Bearer {token}"})
 
