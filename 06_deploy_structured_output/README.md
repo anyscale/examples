@@ -1,4 +1,4 @@
-# Deploy Llama 3
+# JSON Mode and Structured Output
 
 ## Install the Anyscale CLI
 
