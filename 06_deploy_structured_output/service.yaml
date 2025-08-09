@@ -1,6 +1,6 @@
 # View the docs https://docs.anyscale.com/reference/service-api#serviceconfig.
 
-name: deploy-structured-output-aydin
+name: deploy-structured-output
 
 # When empty, use the default image. This can be an Anyscale-provided base image
 # like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
