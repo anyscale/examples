@@ -1,0 +1,23 @@
+# serve_my_llama.yaml
+applications:
+- name: my-multi-lora-app
+  route_prefix: "/"
+  import_path: ray.serve.llm:build_openai_app
+  args:
+    llm_configs:
+      - model_loading_config:
+          model_id: my-llama
+          model_source: meta-llama/Llama-3.1-8B-Instruct
+        lora_config:
+          dynamic_lora_loading_path: <YOUR-S3-OR-GCS-URI>
+        accelerator_type: L4
+        runtime_env:
+          env_vars:
+            ### If your model is not gated, you can skip `HF_TOKEN`
+            # Else, we need to share our Hugging Face Token to the workers so they can access the gated Llama 3
+            HF_TOKEN: <YOUR-HF-TOKEN>
+            VLLM_USE_V1: "0"
+            AWS_REGION: <YOUR-AWS-S3-REGION>
+        engine_kwargs:
+          max_model_len: 8192
+          enable_lora: True
