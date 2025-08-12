@@ -13,7 +13,7 @@ Clone the example from GitHub.
 
 ```
 git clone https://github.com/anyscale/examples.git
-cd examples/07_multi_lora
+cd examples/08_deploy_multi_lora
 ```
 
 Deploy the service.
