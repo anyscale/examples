@@ -16,7 +16,6 @@ applications:
             ### If your model is not gated, you can skip `HF_TOKEN`
             # Else, we need to share our Hugging Face Token to the workers so they can access the gated Llama 3
             HF_TOKEN: <YOUR-HF-TOKEN>
-            VLLM_USE_V1: "0"
             AWS_REGION: <YOUR-AWS-S3-REGION>
         engine_kwargs:
           max_model_len: 8192

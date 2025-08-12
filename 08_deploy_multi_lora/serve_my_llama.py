@@ -18,8 +18,7 @@ llm_config = LLMConfig(
         env_vars={
           ### If your model is not gated, you can skip `HF_TOKEN`
           # Else, we need to share our Hugging Face Token to the workers so they can access the gated Llama 3
-          "HF_TOKEN": os.environ["HF_TOKEN"], 
-          "VLLM_USE_V1": "0",
+          "HF_TOKEN": os.environ["HF_TOKEN"],
           "AWS_REGION": <YOUR-AWS-S3-REGION>
         }
     ),
