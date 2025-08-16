@@ -1,3 +1,4 @@
+import asyncio
 from starlette.requests import Request
 from ray import serve
 from ray.serve._private.http_util import ASGIAppReplicaWrapper
@@ -5,13 +6,14 @@ from fastvideo import VideoGenerator
 import base64
 import io
 import imageio
-import requests
 import uuid
 import os
 import gradio as gr
 
 example_prompt = "A curious raccoon peers through a vibrant field of yellow sunflowers, its eyes wide with interest."
 
+output_dir = "gradio_videos"
+os.makedirs(output_dir, exist_ok=True)
 
 @serve.deployment
 class GradioServer(ASGIAppReplicaWrapper):
@@ -20,11 +22,16 @@ class GradioServer(ASGIAppReplicaWrapper):
     def __init__(self, generator: serve.handle.DeploymentHandle):
         self.generator = generator
 
-        def query_model(prompt):
-            response = requests.post(base_url, json=prompt)
-            video_data = response.text
+    
 
-            video_bytes = base64.b64decode(video_data)
+        def query_model(prompt):
+
+            async def run_query_model(prompt):
+                video_base64 = await generator.generate.remote(prompt)
+                return video_base64
+
+            video_base64 = asyncio.run(run_query_model(prompt))
+            video_bytes = base64.b64decode(video_base64)
             video_filename = f"{uuid.uuid4()}.mp4"
             video_path = os.path.join(output_dir, video_filename)
             
