@@ -16,7 +16,7 @@ class GenerateVideo:
             num_gpus=1,  # Adjust based on your hardware
         )
 
-    def generate(self, prompt: str) -> Dict[str, Any]:
+    def generate(self, prompt: str) -> bytes:
         # Generate the video
         video = self.generator.generate_video(
             prompt,
@@ -33,7 +33,7 @@ class GenerateVideo:
 
         return video_base64
 
-    async def __call__(self, http_request: Request) -> Dict[str, Any]:
+    async def __call__(self, http_request: Request) -> bytes:
         prompt: str = await http_request.json()
         print(prompt)
         return self.generate(prompt)
