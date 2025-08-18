@@ -17,7 +17,7 @@ llm_config = LLMConfig(
     ),
     engine_kwargs=dict(
         max_model_len=8192,
-        hf_token= os.environ.get("HF_TOKEN", "")
+        hf_token=os.environ.get("HF_TOKEN", "")
     )
 )
 
