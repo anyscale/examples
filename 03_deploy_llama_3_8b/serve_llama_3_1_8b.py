@@ -27,7 +27,8 @@ llm_config = LLMConfig(
     )
 )
 
-app = build_openai_app({"llm_configs": [llm_config]})
+deployment = LLMServer.as_deployment(llm_config.get_serve_options(name_prefix="vLLM:")).bind(llm_config)
+app = LLMRouter.as_deployment().bind([deployment])
 
 # Uncomment the below line to run the service locally with Python.
 # serve.run(app, blocking=True)
