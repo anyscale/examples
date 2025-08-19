@@ -16,7 +16,7 @@ git clone https://github.com/anyscale/examples.git
 cd examples/03_deploy_llama_3_8b
 ```
 
-Deploy the service. Forward your Hugging Face token if you need authentication for gated models like Llama 3 (if not, you can ommit that environment variable).
+Deploy the service. Forward your Hugging Face token if you need authentication for gated models like Llama 3 (if not, you can omit that environment variable).
 
 ```
 anyscale service deploy -f service.yaml --env HF_TOKEN=$HF_TOKEN
