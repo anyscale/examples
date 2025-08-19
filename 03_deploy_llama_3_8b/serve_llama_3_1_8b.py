@@ -1,5 +1,5 @@
 from ray import serve
-from ray.serve.llm import LLMConfig, LLMServer, LLMRouter, build_openai_app
+from ray.serve.llm import LLMConfig, build_openai_app
 import os
 
 llm_config = LLMConfig(
@@ -26,8 +26,7 @@ llm_config = LLMConfig(
     )
 )
 
-deployment = LLMServer.as_deployment(llm_config.get_serve_options(name_prefix="vLLM:")).bind(llm_config)
-app = LLMRouter.as_deployment().bind([deployment])
+app = build_openai_app({"llm_configs": [llm_config]})
 
 # Uncomment the below line to run the service locally with Python.
 # serve.run(app, blocking=True)
