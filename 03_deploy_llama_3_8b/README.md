@@ -1,4 +1,4 @@
-# Deploy Llama 3.1-8b
+# Deploy Llama 3.1 8b
 
 ## Install the Anyscale CLI
 
@@ -16,7 +16,7 @@ git clone https://github.com/anyscale/examples.git
 cd examples/03_deploy_llama_3_8b
 ```
 
-Deploy the service. Forward your HuggingFace token if you need authentication for gated models like Llama-3. Else you can skip this step.
+Deploy the service. Forward your Hugging Face token if you need authentication for gated models like Llama 3 (if not, you can ommit that environment variable).
 
 ```
 anyscale service deploy -f service.yaml --env HF_TOKEN=$HF_TOKEN
