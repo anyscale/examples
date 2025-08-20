@@ -12,7 +12,7 @@ base_url = <BASE_URL>  # Fill this in. If deploying and querying locally, use ba
 client = OpenAI(base_url= urljoin(base_url, "v1"), api_key=token)
 
 response = client.chat.completions.create(
-    model="my-llama-3-8B",
+    model="my-llama-3.1-8B",
     messages=[
         {"role": "user", "content": "What's the capital of France?"}
     ],
