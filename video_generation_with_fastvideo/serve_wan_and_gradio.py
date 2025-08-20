@@ -53,7 +53,7 @@ def gradio_builder(generator: serve.handle.DeploymentHandle):
                 maximum=50,
                 step=1,
                 precision=0,
-                info="20-30 inference steps may be required for good quality video"
+                info="20-30 inference steps may be required for good quality video. On an L4 GPU, 3 inference step could take 90 seconds. To speed up generation, use a more powerful GPU type."
             )
 
         run_button = gr.Button("Run", variant="primary", size="lg")
