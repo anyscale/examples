@@ -41,4 +41,4 @@ cloud:
 
 # Specify the Ray Serve app to deploy.
 applications:
-- import_path: serve_wan_and_gradio:app
+- import_path: serve_fastvideo:app
