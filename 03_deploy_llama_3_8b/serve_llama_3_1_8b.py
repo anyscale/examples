@@ -16,7 +16,7 @@ llm_config = LLMConfig(
     ),
     engine_kwargs=dict(
         max_model_len=8192,
-        # We need to share our Hugging Face Token to the workers so they can access the gated model.
+        # We need to share our Hugging Face token to the workers so they can access the gated model.
         # If your model is not gated, you can skip this.
         hf_token=os.environ["HF_TOKEN"]
     )
