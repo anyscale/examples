@@ -31,6 +31,7 @@ If you don't have a Hugging Face token, you can also use an ungated model (repla
 - The required accelerator type is specified in the [application code](https://github.com/anyscale/examples/blob/main/03_deploy_llama_3_8b/serve_llama_3_8b.py) in the line `accelerator_type="L4"`. If you prefer to use a different hardware accelerator, change `L4` to a different accelerator name (you can see most of the supported ones [here](https://docs.ray.io/en/latest/ray-core/accelerator-types.html#accelerator-types)).
 - Ray Serve will automatically autoscale the number of model replicas between `min_replicas` and `max_replicas`. Ray Serve will adapt the number of replicas by monitoring queue sizes. For more details on configuring autoscaling, see the documentation [here](https://docs.ray.io/en/latest/serve/api/doc/ray.serve.config.AutoscalingConfig.html).
 - This example uses vLLM. The dependencies for this service are specified in [this containerfile](https://github.com/anyscale/examples/blob/main/03_deploy_llama_3_8b/Dockerfile). When deploying the service with `anyscale service deploy`, the addition dependencies specified in the containerfile will be built on top of one of the Anyscale-provided base images.
+- To configure vLLM, modify the `engine_kwargs` dictionary. For more details and other configuration options, see the documentation for the `LLMConfig` object [here](https://docs.ray.io/en/latest/serve/api/doc/ray.serve.llm.LLMConfig.html#ray.serve.llm.LLMConfig).
 
 
 ## Query the service
