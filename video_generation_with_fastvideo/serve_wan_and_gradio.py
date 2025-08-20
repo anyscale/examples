@@ -17,13 +17,13 @@ os.makedirs(output_dir, exist_ok=True)
 
 
 def gradio_builder(generator: serve.handle.DeploymentHandle):
-    def query_model(prompt):
+    def query_model(prompt, num_inference_steps):
 
-        async def run_query_model(prompt):
-            video_base64 = await generator.generate.remote(prompt)
+        async def run_query_model(prompt, num_inference_steps):
+            video_base64 = await generator.generate.remote(prompt, num_inference_steps)
             return video_base64
 
-        video_base64 = asyncio.run(run_query_model(prompt))
+        video_base64 = asyncio.run(run_query_model(prompt, num_inference_steps))
         video_bytes = base64.b64decode(video_base64)
         video_filename = f"{uuid.uuid4()}.mp4"
         video_path = os.path.join(output_dir, video_filename)
@@ -44,6 +44,18 @@ def gradio_builder(generator: serve.handle.DeploymentHandle):
             lines=3,
             autofocus=True,
         )
+
+        with gr.Row():
+            num_inference_steps = gr.Number(
+                label="Number of Inference Steps",
+                value=3,
+                minimum=1,
+                maximum=50,
+                step=1,
+                precision=0,
+                info="20-30 inference steps may be required for good quality video"
+            )
+
         run_button = gr.Button("Run", variant="primary", size="lg")
         result = gr.Video(
             label="Generated Video",
@@ -55,7 +67,7 @@ def gradio_builder(generator: serve.handle.DeploymentHandle):
 
         run_button.click(
             fn=query_model,
-            inputs=[prompt],
+            inputs=[prompt, num_inference_steps],
             outputs=[result],
         )
 
@@ -81,11 +93,11 @@ class GenerateVideo:
             num_gpus=1,  # Adjust based on your hardware
         )
 
-    def generate(self, prompt: str) -> bytes:
-        # Generate the video
+    def generate(self, prompt: str, num_inference_steps: int = 3) -> bytes:
+        # Generate the video.
         video = self.generator.generate_video(
             prompt,
-            num_inference_steps=5, # JUST TO SPEED UP TESTING
+            num_inference_steps=num_inference_steps,
             return_frames=True,  # Also return frames from this call (defaults to False)
             # output_path="my_videos/",  # Controls where videos are saved
             # save_video=True
@@ -99,9 +111,11 @@ class GenerateVideo:
         return video_base64
 
     async def __call__(self, http_request: Request) -> bytes:
-        prompt: str = await http_request.json()
-        print(prompt)
-        return self.generate(prompt)
+        data = await http_request.json()
+        prompt = data["prompt"]
+        num_inference_steps = data["num_inference_steps"]
+        print(f"Prompt: {prompt}, Inference steps: {num_inference_steps}")
+        return self.generate(prompt, num_inference_steps)
 
 
 app = GradioServer.bind(GenerateVideo.bind())
