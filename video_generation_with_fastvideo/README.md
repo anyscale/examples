@@ -28,7 +28,7 @@ anyscale service deploy -f service.yaml
 
 The `anyscale service deploy` command outputs a line that looks like
 
-```
+```text
 curl -H "Authorization: Bearer <SERVICE_TOKEN>" <BASE_URL>
 ```
 
