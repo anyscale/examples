@@ -84,7 +84,14 @@ class GradioServer(ASGIAppReplicaWrapper):
         super().__init__(gr.routes.App.create_app(ui))
 
 
-@serve.deployment(num_replicas=1, ray_actor_options={"num_gpus": 1, "memory": 50 * 10**9, "accelerator_type": "L4"})
+@serve.deployment(
+    num_replicas=1,
+    ray_actor_options={
+        "num_gpus": 1,
+        "memory": 50 * 10**9,
+        "accelerator_type": "L4"
+    }
+)
 class GenerateVideo:
     def __init__(self):
         # Create a video generator with a pre-trained model

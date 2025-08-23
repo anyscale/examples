@@ -1,6 +1,6 @@
 # Generate videos with FastVideo
 
-This example demonstrates how to deploy the state-of-the-art video generation model as an Anyscale service using Fast Video.
+This example demonstrates how to deploy the state-of-the-art video generation model as an Anyscale service using Fast Video. View the full code for this example [here](https://github.com/anyscale/examples/tree/main/video_generation_with_fastvideo).
 
 ## Install the Anyscale CLI
 
@@ -47,7 +47,14 @@ The first Ray Serve deployment is `GenerateVideo`, which instantiates the video 
 - Switch to an H100 to generate a high quality video in a reasonable period of time.
 
 ```python
-@serve.deployment(num_replicas=1, ray_actor_options={"num_gpus": 1, "memory": 50 * 10**9, "accelerator_type": "L4"})
+@serve.deployment(
+    num_replicas=1,
+    ray_actor_options={
+        "num_gpus": 1,
+        "memory": 50 * 10**9,
+        "accelerator_type": "L4"
+    }
+)
 class GenerateVideo:
     def __init__(self):
         # Create a video generator with a pre-trained model
