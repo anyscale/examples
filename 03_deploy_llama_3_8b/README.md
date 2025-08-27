@@ -25,6 +25,7 @@ cd examples/03_deploy_llama_3_8b
 Deploy the service. Use `--env` to forward your Hugging Face token if you need authentication for gated models like Llama 3.
 
 ```bash
+export HF_TOKEN=***
 anyscale service deploy -f service.yaml --env HF_TOKEN=$HF_TOKEN
 ```
 
