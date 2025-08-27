@@ -5,7 +5,7 @@ import os
 llm_config = LLMConfig(
     model_loading_config=dict(
         model_id="my-llama-3.1-8B",
-        # Or Qwen/Qwen2.5-7B for an ungated model
+        # Or unsloth/Meta-Llama-3.1-8B-Instruct for an ungated version
         model_source="meta-llama/Llama-3.1-8B-Instruct",
     ),
     accelerator_type="L4",
@@ -14,11 +14,16 @@ llm_config = LLMConfig(
             min_replicas=1, max_replicas=2,
         )
     ),
+    # We need to share our Hugging Face token to the workers so they can access the gated model.
+    # If your model is not gated, you can skip this.
+    runtime_env=dict(
+        env_vars={
+            "HF_TOKEN": os.environ["HF_TOKEN"]
+        }
+
+    ),
     engine_kwargs=dict(
         max_model_len=8192,
-        # We need to share our Hugging Face token to the workers so they can access the gated model.
-        # If your model is not gated, you can skip this.
-        hf_token=os.environ["HF_TOKEN"]
     )
 )
 
