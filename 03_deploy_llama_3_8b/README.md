@@ -29,7 +29,7 @@ export HF_TOKEN=***
 anyscale service deploy -f service.yaml --env HF_TOKEN=$HF_TOKEN
 ```
 
-If you’re using an ungated model, set `model_source` in your `LLMConfig` to that model. You can omit the Hugging Face token from both the config and the `anyscale service deploy` command.
+If you’re using an ungated model, go to your `LLMConfig` (in `serve_llama_3_1_8b.py`), and set `model_source` to that model. Then, you can omit the Hugging Face token from both the config and the `anyscale service deploy` command.
 
 ## Understanding the example
 
