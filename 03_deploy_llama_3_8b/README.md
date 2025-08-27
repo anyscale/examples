@@ -54,6 +54,7 @@ base_url = <BASE_URL>
 
 Query the model  
 ```bash
+pip install openai
 python query.py
 ```
 
