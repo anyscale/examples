@@ -1,10 +1,10 @@
 ---
-description: "Deploy Llama 3.1 with Ray Serve LLM."
+description: "Deploy Llama 3.1 8b with Ray Serve LLM."
 ---
 
 # Deploy Llama 3.1 8b
 
-This example uses Ray Serve along with vLLM to deploy a Llama model as an Anyscale service.
+This example uses Ray Serve along with vLLM to deploy a Llama 3.1 8b model as an Anyscale service.
 
 ## Install the Anyscale CLI
 
