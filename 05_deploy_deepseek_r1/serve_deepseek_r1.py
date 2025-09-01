@@ -17,8 +17,9 @@ llm_config = LLMConfig(
         max_model_len=16384,
         # Split weights among 8 GPUs in each node
         tensor_parallel_size=8,
-        pipeline_parallel_size=2
-    )
+        pipeline_parallel_size=2,
+        reasoning_parser="deepseek_r1",
+    ),
 )
 
 app = build_openai_app({"llm_configs": [llm_config]})
