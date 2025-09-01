@@ -59,3 +59,10 @@ python query.py
 ```
 
 View the service in the [services tab](https://console.anyscale.com/services) of the Anyscale console.
+
+## Shutdown 
+ 
+Shutdown your Anyscale Service:
+```bash
+anyscale service terminate -n deploy-llama-3-1-70b
+```
