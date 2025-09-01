@@ -24,7 +24,6 @@ cd examples/05_deploy_deepseek_r1
 
 Deploy the service. 
 ```bash
-export HF_TOKEN=***
 anyscale service deploy -f service.yaml
 ```
 
