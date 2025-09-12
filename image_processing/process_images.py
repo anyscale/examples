@@ -8,9 +8,9 @@ from PIL import Image
 from io import BytesIO
 
 
-num_images = 1000000
-num_model_replicas = 64
-tensor_parallelism = 4
+num_images = 100
+num_model_replicas = 1
+tensor_parallelism = 1
 
 output_path = os.path.join(os.environ["ANYSCALE_ARTIFACT_STORAGE"], "rkn/process_images_output")
 
@@ -47,8 +47,7 @@ def convert_to_pil_image(row):
 
 
 def fetch_images_batch_threaded(batch):
-    # Previously used 50 instead of 250
-    with concurrent.futures.ThreadPoolExecutor(max_workers=250) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
         results = list(executor.map(fetch_image, batch["url"]))
     batch["image_bytes"] = [result[0] for result in results]
     batch["success"] = [result[1] for result in results]
@@ -69,6 +68,7 @@ vision_processor_config = vLLMEngineProcessorConfig(
     runtime_env=dict(
         env_vars=dict(
             VLLM_USE_V1="1",
+            VLLM_DISABLE_COMPILE_CACHE="1",
         ),
     ),
     batch_size=16,
@@ -131,16 +131,15 @@ dataset = ray.data \
         ray_remote_args={"memory": 10*10**9},
     ) \
     .limit(num_images) \
-    .repartition(target_num_rows_per_block=5000) \
+    .repartition(target_num_rows_per_block=1000) \
     .map_batches(
         fetch_images_batch_threaded,
-        batch_size=1000,
-        # ray_remote_args_fn=lambda: {
-        #     "memory": 2 * 10**9
-        # },
+        batch_size=200,
     ) \
     .filter(lambda row: row["success"]) \
     .filter(lambda row: Image.open(BytesIO(row["image_bytes"])).format == "JPEG")
 
 dataset = vision_processor(dataset)
+dataset = dataset.drop_columns(["image_bytes"])
 dataset.write_parquet(output_path)
+
