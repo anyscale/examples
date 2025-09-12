@@ -1,7 +1,3 @@
----
-description: "Deploy Llama 3.1 8b with Ray Serve LLM."
----
-
 # Deploy Llama 3.1 8b
 
 This example uses Ray Serve along with vLLM to deploy a Llama 3.1 8b model as an Anyscale service.
@@ -25,7 +21,7 @@ cd examples/03_deploy_llama_3_8b
 Deploy the service. Use `--env` to forward your Hugging Face token if you need authentication for gated models like Llama 3.
 
 ```bash
-export HF_TOKEN=***
+export HF_TOKEN=<INSERT HUGGING FACE TOKEN HERE>
 anyscale service deploy -f service.yaml --env HF_TOKEN=$HF_TOKEN
 ```
 

@@ -14,7 +14,7 @@ llm_config = LLMConfig(
             min_replicas=1, max_replicas=2,
         )
     ),
-    # We need to share our Hugging Face token to the workers so they can access the gated model.
+    # We need to share our Hugging Face token with the workers so they can access the gated model.
     # If your model is not gated, you can skip this.
     runtime_env=dict(
         env_vars={
