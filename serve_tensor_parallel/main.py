@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 from fastapi import FastAPI
 import ray
@@ -15,12 +16,14 @@ model_name = "gpt2"  # 124M params - works on small GPUs
 app = FastAPI()
 
 
-@ray.remote(num_gpus=1)
+# Using max_restarts=3 because occasionally there will be a port conflict (we are choosing a random port)
+# and the nccl process group will fail to initialize. We want to retry in those cases.
+@ray.remote(num_gpus=1, max_restarts=3)
 class InferenceWorker:
     def __init__(self, rank, tensor_parallelism_size):
         self.rank = rank
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "12355"
+        os.environ["MASTER_PORT"] = str(random.randint(10000, 65535))
         os.environ["RANK"] = str(self.rank)
         os.environ["WORLD_SIZE"] = str(tensor_parallelism_size)
         dist.init_process_group("nccl", rank=self.rank, world_size=tensor_parallelism_size)
