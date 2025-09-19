@@ -2,12 +2,14 @@
 
 name: tp-service
 
-# When empty, use the default image. This can be an Anyscale-provided base image
-# like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
+# Specify an image to be built in the containerfile.
+containerfile: ./Dockerfile
+# An alternative to containerfile is to provide an image_uri. When empty, use the
+# default image. This can be an Anyscale-provided base image# like
+# anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
 # that it meets certain specs), or you can build new images using the Anyscale
 # image builder at https://console.anyscale-staging.com/v2/container-images.
-# image_uri:  # anyscale/ray:2.43.0-slim-py312-cu125
-containerfile: ./Dockerfile
+# image_uri: anyscale/ray:2.49.2-py312-cu128
 
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
@@ -43,4 +45,4 @@ cloud:
 
 # Speciy the Ray Serve app to deploy.
 applications:
-- import_path: main:app_deploy
+- import_path: main:app

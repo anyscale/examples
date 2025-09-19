@@ -1,55 +1,69 @@
+import os
+import sys
 from fastapi import FastAPI
 import ray
 from ray import serve
 import torch
+import torch.distributed as dist
 import deepspeed
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
+tensor_parallelism_size = 2
+model_name = "gpt2"  # 124M params - works on small GPUs
 
 # Define a FastAPI app and wrap it in a deployment with a route handler.
 app = FastAPI()
 
 
 @ray.remote(num_gpus=1)
-class InferenceReplica:
-    def __init__(self, rank):
+class InferenceWorker:
+    def __init__(self, rank, tensor_parallelism_size):
         self.rank = rank
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        os.environ["RANK"] = str(self.rank)
+        os.environ["WORLD_SIZE"] = str(tensor_parallelism_size)
+        dist.init_process_group("nccl", rank=self.rank, world_size=tensor_parallelism_size)
 
-        model_name = "gpt2"  # 124M params - works on small GPUs
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        # self.tokenizer.pad_token = self.tokenizer.eos_token
         # Initialize DeepSpeed inference with tensor parallelism
         self.model = deepspeed.init_inference(
             model,
-            tensor_parallel={"tp_size": torch.cuda.device_count()},  # Use all available GPUs
+            tensor_parallel={"tp_size": tensor_parallelism_size},  # Use all available GPUs
             dtype=torch.float16,
             replace_with_kernel_inject=True
         )
 
     def inference(self, text):
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.module.device)
+        inputs = self.tokenizer(text, return_tensors="pt")
+        inputs = {k: v.cuda() for k, v in inputs.items()}
         with torch.no_grad():
             outputs = self.model.generate(**inputs, max_length=100)
-        return self.tokenizer.decode(outputs[0])
+        if self.rank == 0:
+            return self.tokenizer.decode(outputs[0])
 
 
 @serve.deployment(
+    num_replicas=2,
     ray_actor_options={"num_cpus": 1},
-    placement_group_bundles=[{"CPU": 3, "GPU": 2}],
+    placement_group_bundles=[{
+        "CPU": tensor_parallelism_size + 1,  # One additional CPU for the coordinator actor.
+        "GPU": tensor_parallelism_size
+    }],
 )
 @serve.ingress(app)
 class InferenceDeployment:
-    def __init__(self):
-        self.replicas = [InferenceReplica.remote(i) for i in range(2)]
+    def __init__(self, tensor_parallelism_size):
+        self.workers = [InferenceWorker.remote(i, tensor_parallelism_size) for i in range(tensor_parallelism_size)]
 
     # FastAPI will automatically parse the HTTP request for us.
     @app.get("/infer")
-    def inference(self, prompt: str) -> str:
-        result0 = self.replicas[0].inference.remote(prompt)
-        result1 = self.replicas[1].inference.remote(prompt)
+    def inference(self, text: str) -> str:
+        results = ray.get([worker.inference.remote(text) for worker in self.workers])
+        return results[0]
 
-        return sum(ray.get([result0, result1]))
 
 # Create deployment.
-app_deploy = InferenceDeployment.bind()
+app = InferenceDeployment.bind(tensor_parallelism_size)

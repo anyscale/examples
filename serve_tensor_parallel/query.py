@@ -7,12 +7,8 @@ import requests
 #     curl -H "Authorization: Bearer <SERVICE_TOKEN>" <BASE_URL>
 # 
 # From this, you can parse out the service token and base URL.
-# From this, you can parse out the service token and base URL.
-token = "eWoFaAMR9SN4KnCXE-ExE6lvZG4lbTN6IXzkvJFB61A"
-base_url = "https://tp-service-jgz99.cld-kvedzwag2qa8i5bj.s.anyscaleuserdata.com/"
-
-token = "ca21hjrgCgQuZUTERmc9gzvxBW880IR1ivrY1cqrgd0"
-base_url = "https://serve-session-raxdx23jzvfjvc3if1b5wnma2t.i.anyscaleuserdata.com/"
+token = <SERVICE_TOKEN>  # Fill this in. If deploying and querying locally, use token = "FAKE_KEY"
+base_url = <BASE_URL>  # Fill this in. If deploying and querying locally, use base_url = "http://localhost:8000"
 
 resp = requests.get(
     urljoin(base_url, "infer"),

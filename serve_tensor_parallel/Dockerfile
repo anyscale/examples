@@ -1,4 +1,4 @@
-FROM anyscale/ray:2.49.1-slim-py312-cu128
+FROM anyscale/ray:2.49.2-py312-cu128
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
