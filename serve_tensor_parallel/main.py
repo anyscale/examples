@@ -1,6 +1,5 @@
 import os
 import random
-import sys
 from fastapi import FastAPI
 import ray
 from ray import serve
