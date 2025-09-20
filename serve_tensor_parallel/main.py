@@ -20,10 +20,10 @@ app = FastAPI()
 # and the nccl process group will fail to initialize. We want to retry in those cases.
 @ray.remote(num_gpus=1, max_restarts=3)
 class InferenceWorker:
-    def __init__(self, rank, tensor_parallelism_size):
+    def __init__(self, rank, tensor_parallelism_size, master_address, master_port):
         self.rank = rank
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = str(random.randint(10000, 65535))
+        os.environ["MASTER_ADDR"] = master_address
+        os.environ["MASTER_PORT"] = master_port
         os.environ["RANK"] = str(self.rank)
         os.environ["WORLD_SIZE"] = str(tensor_parallelism_size)
         dist.init_process_group("nccl", rank=self.rank, world_size=tensor_parallelism_size)
@@ -59,7 +59,9 @@ class InferenceWorker:
 @serve.ingress(app)
 class InferenceDeployment:
     def __init__(self, tensor_parallelism_size):
-        self.workers = [InferenceWorker.remote(i, tensor_parallelism_size) for i in range(tensor_parallelism_size)]
+        master_address = "localhost"  # This is fine as long as the model fits on a single node.
+        master_port = str(random.randint(10000, 65535))
+        self.workers = [InferenceWorker.remote(i, tensor_parallelism_size, master_address, master_port) for i in range(tensor_parallelism_size)]
 
     # FastAPI will automatically parse the HTTP request for us.
     @app.get("/infer")
