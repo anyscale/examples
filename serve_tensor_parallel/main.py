@@ -1,3 +1,4 @@
+from typing import Dict
 import os
 import random
 from fastapi import FastAPI
@@ -70,4 +71,5 @@ class InferenceDeployment:
 
 
 # Create deployment.
-app = InferenceDeployment.bind(tensor_parallelism_size)
+def app_builder(args: Dict[str, str]) -> serve.Application:
+    return InferenceDeployment.bind(args["tensor_parallelism_size"])

@@ -1,19 +1,25 @@
-# View the docs https://docs.anyscale.com/reference/service-api#serviceconfig.
+# View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
 
-name: tp-service
+name: deduplicate-documents
 
-# Specify an image to be built in the containerfile.
-containerfile: ./Dockerfile
-# An alternative to containerfile is to provide an image_uri. When empty, use the
-# default image. This can be an Anyscale-provided base image# like
-# anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
+# When empty, use the default image. This can be an Anyscale-provided base image
+# like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
 # that it meets certain specs), or you can build new images using the Anyscale
 # image builder at https://console.anyscale-staging.com/v2/container-images.
-# image_uri: anyscale/ray:2.49.2-py312-cu128
+# image_uri: anyscale/ray:2.43.0-slim-py312-cu125
+containerfile: ./Dockerfile
 
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
+#  auto_select_worker_config: true
+  worker_nodes:
+    - instance_type: m5.16xlarge
+      min_nodes: 0
+      max_nodes: 100
+  min_resources:
+    CPU: 1600
+
 #   head_node:
 #     instance_type: m5.2xlarge
 #   worker_nodes:
@@ -28,9 +34,6 @@ compute_config:
 #       min_nodes: 0
 #       max_nodes: 100
 #       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#   min_resources:
-#     CPU: 100
-#     GPU: 1
 #   max_resources:
 #     CPU: 5000
 #     GPU: 100
@@ -43,8 +46,16 @@ working_dir: .
 # When empty, this uses the default Anyscale Cloud in your organization.
 cloud:
 
-# Speciy the Ray Serve app to deploy.
-applications:
-- import_path: main:app_builder
-  args:
-    tensor_parallelism_size: 2
+# The script to run in your job. You can also do "uv run main.py" if you have a
+# pyproject.toml file in your working_dir.
+entrypoint: |
+  python ray_minhash_lsh_datajuicer.py \
+    --flavor=datajuicer \
+    --documents_path=hf://datasets/HuggingFaceFW/fineweb-edu/data/CC-MAIN-2013-20/train-00000-of-00014.parquet  \
+    --text_column=text  \
+    --threshold=0.7 \
+    --ngram_size=5 \
+    --output=/mnt/cluster_storage/
+
+# If there is an error, do not retry.
+max_retries: 0
