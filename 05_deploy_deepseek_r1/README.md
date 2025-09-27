@@ -1,7 +1,3 @@
----
-description: "Deploy DeepSeek R1 with Ray Serve LLM."
----
-
 # Deploy DeepSeek R1
 
 This example uses Ray Serve along with vLLM to deploy a DeepSeek R1 model as an Anyscale service.
@@ -60,5 +56,5 @@ View the service in the [services tab](https://console.anyscale.com/services) of
  
 Shutdown your Anyscale Service:
 ```bash
-anyscale service terminate -n deploy-deepseek-r1
+anyscale service terminate -n deploy-llama-3-1-70b
 ```

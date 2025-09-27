@@ -27,6 +27,24 @@ compute_config:
 #       max_nodes: 100
 #       market_type: PREFER_SPOT # Defaults to ON_DEMAND
   auto_select_worker_config: true
+  # Change default disk size to 1000GB
+  advanced_instance_config:
+    ## AWS ##
+    BlockDeviceMappings:
+      - Ebs:
+        - VolumeSize: 1000
+          VolumeType: gp3
+          DeleteOnTermination: true
+        DeviceName: "/dev/sda1"
+    #########
+    ## GCP ##
+    #instanceProperties:
+    #  disks:
+    #    - boot: true
+    #      auto_delete: true
+    #      initialize_params:
+    #        - disk_size_gb: 1000
+    #########
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
