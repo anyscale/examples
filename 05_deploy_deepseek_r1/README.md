@@ -56,5 +56,5 @@ View the service in the [services tab](https://console.anyscale.com/services) of
  
 Shutdown your Anyscale Service:
 ```bash
-anyscale service terminate -n deploy-llama-3-1-70b
+anyscale service terminate -n deploy-deepseek-r1
 ```
