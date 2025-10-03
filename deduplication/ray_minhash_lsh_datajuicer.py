@@ -1,6 +1,6 @@
-# python ray_minhash_lsh_datajuicer.py --flavor=datajuicer --documents_path=hf://datasets/HuggingFaceFW/fineweb-edu/data/CC-MAIN-2013-20/train-00000-of-00014.parquet  --text_column=text  --threshold=0.7 --ngram_size=5 --output=/mnt/cluster_storage/
-
 """Fuzzy dedup at scale implemented upon Ray. Pretty mush a fork of the code in DataJuicer."""
+
+# uv run ray_minhash_lsh_datajuicer.py --flavor=datajuicer --documents_path=gs://anyscale-example-datasets/HuggingFaceFW/fineweb-edu/data/ --text_column=text --threshold=0.7 --ngram_size=5 --output=/mnt/cluster_storage/
 
 import argparse
 import hashlib
@@ -14,7 +14,6 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Annotated, cast
-
 import numpy as np
 import pyarrow as pa
 import ray
@@ -22,7 +21,6 @@ from google.cloud import storage  # type: ignore
 from numpy import typing as nptype
 from pydantic import Field, PositiveInt
 from scipy import integrate  # pyright: ignore[reportMissingTypeStubs]
-from huggingface_hub import HfFileSystem
 
 BATCH_SIZE = 1000
 MERSENNE_PRIME = np.uint64((1 << 61) - 1)
@@ -118,7 +116,7 @@ class DedupParameters:
   """If not None, will display some cluster samples."""
 
   work_dir: str = (
-    '/mnt/cluster_storage'
+    os.path.join(os.environ['ANYSCALE_ARTIFACT_STORAGE'], f'rkn/dedup/{np.random.randint(1000000, 9999999)}/')
   )
   """Used by the datajuicer flavor to dump temporary data."""
 
@@ -358,7 +356,7 @@ def get_remote_classes() -> dict[str, object]:
   return {
     'IdGenerator': ray.remote(IdGenerator),
     'EdgeBuffer': ray.remote(scheduling_strategy='SPREAD')(EdgeBuffer),
-    'BTSUnionFind': ray.remote(scheduling_strategy='SPREAD')(BTSUnionFind),
+    'BTSUnionFind': ray.remote(memory=1e10, scheduling_strategy='SPREAD')(BTSUnionFind),
   }
 
 
@@ -870,7 +868,12 @@ class RayBTSMinhashDeduplicator:
         minhash_with_uid,
         batch_format='pyarrow',
         zero_copy_batch=True,
-      ).write_parquet(tmp_dir, try_create_dir=False, ray_remote_args={"num_cpus": 1.1})
+        memory=2e10
+      ).write_parquet(
+        tmp_dir,
+        try_create_dir=False,
+        ray_remote_args={"memory": 1e10}
+      )
       # TODO: del dataset too ?
     end_time = time.time()
     logger.info(f'MinHash time = {end_time - start_time}')
@@ -885,7 +888,6 @@ class RayBTSMinhashDeduplicator:
       batch_format='pyarrow',
       zero_copy_batch=True,
     )
-
     end_time = time.time()
     logger.info(f'filter time = {end_time - start_time}')
     return result
@@ -945,29 +947,13 @@ def execute(parameters: DedupParameters) -> None:
       # TODO in the future.
       input_path.append(document_path)
 
+  import gcsfs
+  filesystem = gcsfs.GCSFileSystem(project="test-vertex")
   ds = ray.data.read_parquet(  # type: ignore
     input_path,
-    file_extensions=["parquet"],
-    filesystem=HfFileSystem(token=os.environ["HF_TOKEN"]),
+    filesystem=filesystem,
+    ray_remote_args={"memory": 1e10}
   )
-
-  #### BEGIN: ADDITIONAL CODE TO REPLICATE THE DATASET
-  replication_factor = 200
-
-  def replicate_data(batch):
-    for k, v in batch.items():
-      assert batch[k].ndim == 1
-      batch[k] = np.hstack([v] * replication_factor)
-    return batch
-
-  ds = ds.map_batches(
-    replicate_data,
-    batch_size=10,
-    zero_copy_batch=True,
-    num_cpus=0.5,
-  )
-  #### END: ADDITIONAL CODE TO REPLICATE THE DATASET
-
 
   # Filter data so we only have what matters to us: id and text.
   ds_less_columns = ds.select_columns(  # type: ignore
@@ -1018,11 +1004,7 @@ def execute(parameters: DedupParameters) -> None:
   if parameters.output_path:
     # Note: writing parquet files in a directory does not work yet on gcs -
     # to be fixed when I have the time.
-    output_ds.write_parquet(
-        parameters.output_path,
-        try_create_dir=False,
-        # ray_remote_args={"num_cpus": 1.1},
-    )  # type: ignore
+    output_ds.write_parquet(parameters.output_path, try_create_dir=False)  # type: ignore
     logger.info(f'Results saved to {parameters.output_path}')
 
 
