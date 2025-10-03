@@ -15,7 +15,7 @@ model_name = "gpt2"  # 124M params - works on small GPUs
 
 @ray.remote(num_gpus=1)
 class InferenceWorker:
-    def __init__(self, rank, tensor_parallelism_size, master_address, master_port):
+    def initialize_model(self, rank, tensor_parallelism_size, master_address, master_port):
         self.rank = rank
         os.environ["MASTER_ADDR"] = master_address
         os.environ["MASTER_PORT"] = master_port
@@ -34,6 +34,9 @@ class InferenceWorker:
             replace_with_kernel_inject=True
         )
 
+    def get_ip_address(self):
+        return ray._private.services.get_node_ip_address()
+
     def inference(self, text):
         inputs = self.tokenizer(text, return_tensors="pt")
         inputs = {k: v.cuda() for k, v in inputs.items()}
@@ -43,12 +46,14 @@ class InferenceWorker:
             return self.tokenizer.decode(outputs[0])
 
 
-master_address = "localhost"  # This is fine as long as the model fits on a single node.
+
+workers = [InferenceWorker.remote() for i in range(tensor_parallelism_size)]
+master_address = ray.get(workers[0].get_ip_address.remote())
 master_port = str(random.randint(10000, 65535))
-workers = [InferenceWorker.remote(i, tensor_parallelism_size, master_address, master_port) for i in range(tensor_parallelism_size)]
+ray.get([workers[i].initialize_model.remote(i, tensor_parallelism_size, master_address, master_port) for i in range(tensor_parallelism_size)])
 
 
-def inference(self, text: str) -> str:
+def inference(text: str) -> str:
     results = ray.get([worker.inference.remote(text) for worker in workers])
     return results[0]
 
