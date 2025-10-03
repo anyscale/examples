@@ -1,0 +1,55 @@
+name: multi-region-job
+
+containerfile: ./Dockerfile
+
+compute_config:
+  worker_nodes:
+    - instance_type: a2-highgpu-1g-nvidia-a100-40gb-1
+      market_type: PREFER_SPOT
+    - instance_type: a2-ultragpu-1g-nvidia-a100-80gb-1
+      market_type: PREFER_SPOT
+    - instance_type: a2-highgpu-2g-nvidia-a100-40gb-2
+      market_type: PREFER_SPOT
+    - instance_type: a2-ultragpu-2g-nvidia-a100-80gb-2
+      market_type: PREFER_SPOT
+    - instance_type: a2-highgpu-4g-nvidia-a100-40gb-4
+      market_type: PREFER_SPOT
+    - instance_type: a2-ultragpu-4g-nvidia-a100-80gb-4
+      market_type: PREFER_SPOT
+    - instance_type: a2-highgpu-8g-nvidia-a100-40gb-8
+      market_type: PREFER_SPOT
+    - instance_type: a2-ultragpu-8g-nvidia-a100-80gb-8
+      market_type: PREFER_SPOT
+    - instance_type: a2-megagpu-16g-nvidia-a100-40gb-16
+      market_type: PREFER_SPOT
+    - instance_type: a3-highgpu-1g-nvidia-h100-80gb-1
+      market_type: PREFER_SPOT
+    - instance_type: a3-highgpu-2g-nvidia-h100-80gb-2
+      market_type: PREFER_SPOT
+    - instance_type: a3-highgpu-4g-nvidia-h100-80gb-4
+      market_type: PREFER_SPOT
+    - instance_type: a3-highgpu-8g-nvidia-h100-80gb-8
+      market_type: PREFER_SPOT
+    - instance_type: a3-megagpu-8g-nvidia-h100-mega-80gb-8
+      market_type: PREFER_SPOT
+    - instance_type: a3-ultragpu-8g-nvidia-h200-141gb-8
+      market_type: PREFER_SPOT
+    - instance_type: g4-standard-48-nvidia-rtx-pro-6000-96gb-1
+      market_type: PREFER_SPOT
+    - instance_type: g4-standard-96-nvidia-rtx-pro-6000-96gb-2
+      market_type: PREFER_SPOT
+    - instance_type: g4-standard-192-nvidia-rtx-pro-6000-96gb-4
+      market_type: PREFER_SPOT
+    - instance_type: g4-standard-384-nvidia-rtx-pro-6000-96gb-8
+      market_type: PREFER_SPOT
+
+  min_resources:
+    GPU: 2
+
+working_dir: .
+
+cloud:
+
+entrypoint: python main.py
+
+max_retries: 0
