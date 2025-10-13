@@ -14,8 +14,6 @@ llm_config = LLMConfig(
             max_replicas=1,
         )
     ),
-    ### Uncomment if your model is gated and needs your Hugging Face token to access it. You can also pass the token to your Anyscale Service with `--env HF_TOKEN=$HF_TOKEN`
-    # runtime_env=dict(env_vars={"HF_TOKEN": os.environ.get("HF_TOKEN")}),
     engine_kwargs=dict(
         max_model_len=16384,
         # Split weights among 8 GPUs in the node
