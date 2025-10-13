@@ -12,14 +12,14 @@ base_url = <BASE_URL>  # Fill this in. If deploying and querying locally, use ba
 client = OpenAI(base_url= urljoin(base_url, "v1"), api_key=token)
 
 response = client.chat.completions.create(
-    model="my-llama-3.1-70B",
+    model="my-70b-model",
     messages=[
         {"role": "user", "content": "What's the capital of France?"}
     ],
     stream=True
 )
 
-# Stream and print JSON
+# Stream and print the response.
 for chunk in response:
     data = chunk.choices[0].delta.content
     if data:
