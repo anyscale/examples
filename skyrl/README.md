@@ -29,10 +29,7 @@ anyscale job submit -f job.yaml
 ## Understanding the example
 
 - The entrypoint defined in the [job.yaml](https://github.com/anyscale/examples/blob/main/skyrl/job.yaml) first runs a script to download the GSM8K dataset and store it under `/mnt/cluster_storage/data/gsm8k`. The `/mnt/cluster_storage/` directory is an ephemeral shared filesystem attached to the cluster for the duration of the job (this ensures that all workers have access to the data).
-- The main entrypoint, `skyrl_train.entrypoints.main_base`, is run using `uv`, which picks up the relevant [pyproject.toml file](https://github.com/NovaSky-AI/SkyRL/blob/main/skyrl-train/pyproject.toml) in the SkyRL repository. That file specifies a Ray version, but we actually want to use the version of Ray used in the existing Ray cluster on Anyscale, which is why the `uv run` command includes the flag
-    ```text
-    --with ray@http://localhost:9478/ray/ray-2.48.0-cp312-cp312-manylinux2014_x86_64.whl`
-    ```
+- The main entrypoint, `skyrl_train.entrypoints.main_base`, is run using `uv`, which picks up the relevant [pyproject.toml](https://github.com/NovaSky-AI/SkyRL/blob/main/skyrl-train/pyproject.toml) file in the SkyRL repository. That file specifies a Ray version, but we actually want to use the version of Ray used in the existing Ray cluster on Anyscale, which is why the `uv run` command includes the flag `--with ray@http://localhost:9478/ray/ray-2.48.0-cp312-cp312-manylinux2014_x86_64.whl`.
 - In this example, we cannot set the `working_dir` argument in the job yaml file because `uv` will look for the appropriate `pyproject.toml` file in that working directory (and won't find it) instead of in the correct directory `$HOME/SkyRL/skyrl-train`.
 
 ## View the job
