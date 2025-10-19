@@ -14,35 +14,16 @@ containerfile: ./Dockerfile
 compute_config:
 #   head_node:
 #     instance_type: m5.2xlarge
-#   worker_nodes:
-#     # These instances are only available in AWS.
-#     - instance_type: p4d.24xlarge
-#       min_nodes: 0
-#       max_nodes: 1
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#     - instance_type: p4de.24xlarge
-#       min_nodes: 0
-#       max_nodes: 1
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#     - instance_type: p5.48xlarge
-#       min_nodes: 0
-#       max_nodes: 1
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#
-#     # These instances are only available in GCP.
-#     - instance_type: a2-highgpu-8g-nvidia-a100-40gb-8
-#       market_type: PREFER_SPOT
-#     - instance_type: a2-ultragpu-8g-nvidia-a100-80gb-8
-#       market_type: PREFER_SPOT
-#     - instance_type: a2-megagpu-16g-nvidia-a100-40gb-16
-#       market_type: PREFER_SPOT
-#     - instance_type: a3-highgpu-8g-nvidia-h100-80gb-8
-#       market_type: PREFER_SPOT
-#     - instance_type: a3-megagpu-8g-nvidia-h100-mega-80gb-8
-#       market_type: PREFER_SPOT
-#     - instance_type: a3-ultragpu-8g-nvidia-h200-141gb-8
-#       market_type: PREFER_SPOT
-  auto_select_worker_config: true
+  worker_nodes:
+    # These instances are available in AWS.
+    - instance_type: g6.12xlarge
+      min_nodes: 1
+      max_nodes: 1
+
+    # # These instances are available in GCP.
+    # - instance_type: g2-standard-48-nvidia-l4-4
+    #   min_nodes: 1
+    #   max_nodes: 1
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
