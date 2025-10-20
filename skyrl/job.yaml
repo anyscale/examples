@@ -69,7 +69,8 @@ entrypoint: |
     environment.env_class=gsm8k \
     trainer.logger="console" \
     trainer.project_name="gsm8k" \
-    trainer.run_name="gsm8k_test"
+    trainer.run_name="gsm8k_test" \
+    trainer.ckpt_path=$ANYSCALE_ARTIFACT_STORAGE/skyrl_checkpoints
 
 # If there is an error, do not retry.
 max_retries: 0
