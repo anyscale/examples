@@ -13,6 +13,7 @@ base_url = <BASE_URL>  # Fill this in.
 resp = requests.get(
     urljoin(base_url, "hello"),
     params={"name": "Theodore"},
-    headers={"Authorization": f"Bearer {token}"})
+    headers={"Authorization": f"Bearer {token}"},
+    timeout=10)
 
 print(resp.text)
