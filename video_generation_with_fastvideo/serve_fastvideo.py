@@ -1,4 +1,3 @@
-import asyncio
 from starlette.requests import Request
 from ray import serve
 from ray.serve._private.http_util import ASGIAppReplicaWrapper
@@ -17,13 +16,8 @@ os.makedirs(output_dir, exist_ok=True)
 
 
 def gradio_builder(generator: serve.handle.DeploymentHandle):
-    def query_model(prompt, num_inference_steps):
-
-        async def run_query_model(prompt, num_inference_steps):
-            video_base64 = await generator.generate.remote(prompt, num_inference_steps)
-            return video_base64
-
-        video_base64 = asyncio.run(run_query_model(prompt, num_inference_steps))
+    async def query_model(prompt, num_inference_steps):
+        video_base64 = await generator.generate.remote(prompt, num_inference_steps)
         video_bytes = base64.b64decode(video_base64)
         video_filename = f"{uuid.uuid4()}.mp4"
         video_path = os.path.join(output_dir, video_filename)
@@ -93,7 +87,7 @@ class GenerateVideo:
             num_gpus=1,  # Adjust based on your hardware
         )
 
-    def generate(self, prompt: str, num_inference_steps: int = 3) -> bytes:
+    def generate(self, prompt: str, num_inference_steps: int = 3) -> str:
         # Generate the video.
         video = self.generator.generate_video(
             prompt,
@@ -110,7 +104,7 @@ class GenerateVideo:
 
         return video_base64
 
-    async def __call__(self, http_request: Request) -> bytes:
+    async def __call__(self, http_request: Request) -> str:
         data = await http_request.json()
         prompt = data["prompt"]
         num_inference_steps = data["num_inference_steps"]

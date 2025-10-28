@@ -12,6 +12,7 @@ base_url = <BASE_URL>  # Fill this in. If deploying and querying locally, use ba
 resp = requests.get(
     urljoin(base_url, "infer"),
     params={"text": "What is the future of AI? "},
-    headers={"Authorization": f"Bearer {token}"})
+    headers={"Authorization": f"Bearer {token}"},
+    timeout=15)
 
 print(resp.text)
