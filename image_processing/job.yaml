@@ -12,27 +12,39 @@ containerfile: ./Dockerfile
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
-#   head_node:
-#     instance_type: m5.2xlarge
-#   worker_nodes:
-#     - instance_type: m5.16xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#     - instance_type: m7a.24xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#     - instance_type: g4dn.2xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#   min_resources:
-#     CPU: 100
-#     GPU: 1
-#   max_resources:
-#     CPU: 5000
-#     GPU: 100
+  # OPTION 1: Auto-selection (current - works on Anyscale-hosted)
+  # Uses default disk sizes (~100GB). Cannot customize disk with auto-selection.
+  min_resources:
+    CPU: 0
+    GPU: 0
+  max_resources:
+    CPU: 520
+    GPU: 128
   auto_select_worker_config: true
+
+  # OPTION 2: Explicit config with custom disk (CUSTOMER-HOSTED ONLY)
+  # Uncomment below and comment out the auto-selection config above to use custom disk.
+  # NOTE: advanced_instance_config only works on customer-hosted AWS accounts.
+  # See DISK_SIZE_OPTIONS.md for details.
+  #
+  # head_node:
+  #   instance_type: m5.2xlarge
+  #   advanced_instance_config:
+  #     BlockDeviceMappings:
+  #       - DeviceName: /dev/sda1
+  #         Ebs:
+  #           VolumeSize: 500
+  #           VolumeType: gp3
+  # worker_nodes:
+  #   - instance_type: m5.16xlarge
+  #     min_nodes: 0
+  #     max_nodes: 100
+  #     advanced_instance_config:
+  #       BlockDeviceMappings:
+  #         - DeviceName: /dev/sda1
+  #           Ebs:
+  #             VolumeSize: 500
+  #             VolumeType: gp3
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
