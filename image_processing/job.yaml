@@ -1,5 +1,4 @@
 # View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
-
 name: process-images
 
 # When empty, use the default image. This can be an Anyscale-provided base image
@@ -16,35 +15,11 @@ compute_config:
   # Uses default disk sizes (~100GB). Cannot customize disk with auto-selection.
   min_resources:
     CPU: 0
-    GPU: 0
+    GPU: 96
   max_resources:
-    CPU: 520
+    CPU: 1024
     GPU: 128
   auto_select_worker_config: true
-
-  # OPTION 2: Explicit config with custom disk (CUSTOMER-HOSTED ONLY)
-  # Uncomment below and comment out the auto-selection config above to use custom disk.
-  # NOTE: advanced_instance_config only works on customer-hosted AWS accounts.
-  # See DISK_SIZE_OPTIONS.md for details.
-  #
-  # head_node:
-  #   instance_type: m5.2xlarge
-  #   advanced_instance_config:
-  #     BlockDeviceMappings:
-  #       - DeviceName: /dev/sda1
-  #         Ebs:
-  #           VolumeSize: 500
-  #           VolumeType: gp3
-  # worker_nodes:
-  #   - instance_type: m5.16xlarge
-  #     min_nodes: 0
-  #     max_nodes: 100
-  #     advanced_instance_config:
-  #       BlockDeviceMappings:
-  #         - DeviceName: /dev/sda1
-  #           Ebs:
-  #             VolumeSize: 500
-  #             VolumeType: gp3
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
@@ -53,6 +28,9 @@ working_dir: .
 
 # When empty, this uses the default Anyscale Cloud in your organization.
 cloud:
+
+env_vars:
+  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
 
 # The script to run in your job. You can also do "uv run main.py" if you have a
 # pyproject.toml file in your working_dir.
