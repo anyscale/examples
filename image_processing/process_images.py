@@ -10,12 +10,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 
-
 # ============================================================================
 # SCALABILITY CONFIGURATION FOR 2B+ IMAGES
 # ============================================================================
 # num_images = 100
-num_model_replicas = 96
+max_gpu_num = 96
+min_gpu_num = 32
 tensor_parallelism = 1
 download_concurrency = 1000
 download_timeout = 5
@@ -28,16 +28,18 @@ def is_valid_url(url):
     if not url or not isinstance(url, str):
         return False
     url_lower = url.lower().strip()
-    return url_lower.startswith('http://') or url_lower.startswith('https://')
+    return url_lower.startswith("http://") or url_lower.startswith("https://")
 
 
 async def download_single_image(session, url, semaphore):
     async with semaphore:
         if not is_valid_url(url):
             return None
-        
+
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=download_timeout)) as response:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=download_timeout)
+            ) as response:
                 if response.status == 200:
                     content = await response.read()
                     return content
@@ -48,74 +50,62 @@ async def download_single_image(session, url, semaphore):
 
 async def download_images_async(urls):
     semaphore = asyncio.Semaphore(download_concurrency)
-    
+
     connector = aiohttp.TCPConnector(
         limit=download_concurrency,
         limit_per_host=100,
         ttl_dns_cache=300,
-        enable_cleanup_closed=True
+        enable_cleanup_closed=True,
     )
-    
+
     timeout_config = aiohttp.ClientTimeout(total=download_timeout, connect=3)
-    
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout_config) as session:
+
+    async with aiohttp.ClientSession(
+        connector=connector, timeout=timeout_config
+    ) as session:
         tasks = [download_single_image(session, url, semaphore) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     processed_results = []
     for result in results:
         if isinstance(result, Exception):
             processed_results.append(None)
         else:
             processed_results.append(result)
-    
+
     return processed_results
-
-
-def run_async_in_thread(coro):
-    """Run async coroutine in a separate thread with its own event loop."""
-    import threading
-    result = None
-    exception = None
-    
-    def run_in_thread():
-        nonlocal result, exception
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(coro)
-            loop.close()
-        except Exception as e:
-            exception = e
-    
-    thread = threading.Thread(target=run_in_thread)
-    thread.start()
-    thread.join()
-    
-    if exception:
-        raise exception
-    return result
 
 
 def image_download(batch):
     urls = batch["url"]
-    results = run_async_in_thread(download_images_async(urls))
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    results = loop.run_until_complete(download_images_async(urls))
     batch["bytes"] = results
     return batch
+
 
 def process_single_image(image_bytes):
     if image_bytes is None:
         return None
-    
+
     try:
         img = Image.open(BytesIO(image_bytes))
         img.load()
-        
+
         if img.mode != "RGB":
             img = img.convert("RGB")
-        
+
         img = img.resize((128, 128), Image.Resampling.LANCZOS)
-        
+
         output_buffer = BytesIO()
         img.save(output_buffer, format="JPEG", quality=95)
         return output_buffer.getvalue()
@@ -125,10 +115,10 @@ def process_single_image(image_bytes):
 
 def process_image_bytes(batch):
     image_bytes_list = batch["bytes"]
-    
+
     with ThreadPoolExecutor(max_workers=50) as executor:
         results = list(executor.map(process_single_image, image_bytes_list))
-    
+
     batch["bytes"] = results
     return batch
 
@@ -151,7 +141,7 @@ vision_processor_config = vLLMEngineProcessorConfig(
     batch_size=8,
     max_concurrent_batches=16,
     accelerator_type="A10G",
-    concurrency=num_model_replicas,
+    concurrency=(min_gpu_num, max_gpu_num),
     has_image=True,
 )
 
@@ -208,9 +198,9 @@ dataset = (
         num_cpus=2,
         memory=int(4 * 1024**3),
     )
-    .map_batches(image_download, batch_size=100, num_cpus=0.5)
+    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=1024)
     .drop_columns(["url"])
-    .map_batches(process_image_bytes, batch_size=100, num_cpus=0.5)
+    .map_batches(process_image_bytes, batch_size=50, num_cpus=1)
     .filter(lambda row: row["bytes"] is not None)
 )
 

@@ -1,4 +1,5 @@
 # View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
+
 name: process-images
 
 # When empty, use the default image. This can be an Anyscale-provided base image
@@ -15,10 +16,10 @@ compute_config:
   # Uses default disk sizes (~100GB). Cannot customize disk with auto-selection.
   min_resources:
     CPU: 0
-    GPU: 96
+    GPU: 0
   max_resources:
-    CPU: 1024
-    GPU: 128
+    CPU: 530
+    GPU: 48
   auto_select_worker_config: true
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that

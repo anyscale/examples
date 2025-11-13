@@ -46,7 +46,7 @@ Results will be written to `/mnt/shared_storage/process_images_output/{timestamp
 
 The pipeline is configured for high-throughput processing:
 
-- **Compute**: Up to 1,024 CPUs and 96 GPUs with auto-scaling
+- **Compute**: Up to 530 CPUs and 96 GPUs with auto-scaling
 - **Vision Model**: Qwen2.5-VL-3B-Instruct on A10G GPUs with vLLM
 - **Download**: 1,000 concurrent connections, 5-second timeout per image
 - **Batch Processing**: 50 images per download batch, 8 images per inference batch
