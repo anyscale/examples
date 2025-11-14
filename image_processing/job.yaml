@@ -14,15 +14,15 @@ containerfile: ./Dockerfile
 compute_config:
   # Pin worker nodes to g6.xlarge (1xL4) so the vision workload lands on L4 GPUs.
   worker_nodes:
-    - instance_type: g6.2xlarge
+    - instance_type: g6.xlarge
       min_nodes: 0
-      max_nodes: 64
+      max_nodes: 128
   min_resources:
     CPU: 0
     GPU: 0
   max_resources:
     CPU: 530
-    GPU: 64
+    GPU: 128
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be

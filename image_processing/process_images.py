@@ -1,13 +1,13 @@
 import os
-import asyncio
 import ray
 from huggingface_hub import HfFileSystem
 from ray.data.llm import vLLMEngineProcessorConfig, build_llm_processor
 from PIL import Image
 from io import BytesIO
-import aiohttp
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import time
 
 
 # ============================================================================
@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 # ============================================================================
 # num_images = 100
 # Target 64 concurrent L4 replicas on g6.xlarge workers.
-max_gpu_num = 64
-min_gpu_num = 64
+
+gpu_num = 128
 tensor_parallelism = 1
-download_concurrency = 1000
+download_concurrency = 256
 download_timeout = 5
 
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -80,16 +80,36 @@ async def download_images_async(urls):
 def image_download(batch):
     urls = batch["url"]
 
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Use a dedicated event loop per batch to avoid interfering with any
+    # existing asyncio loops that Ray or vLLM may be running in this process.
+    loop = asyncio.new_event_loop()
 
-    results = loop.run_until_complete(download_images_async(urls))
+    try:
+        results = loop.run_until_complete(download_images_async(urls))
+    finally:
+        # Comprehensive cleanup to prevent resource leaks
+        try:
+            # Cancel all pending tasks in this specific loop
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+
+            # Wait for all task cancellations to complete
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+            # Shut down async generators
+            loop.run_until_complete(loop.shutdown_asyncgens())
+
+            # Shut down the default executor (thread pool)
+            loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            # Best-effort cleanup; failures here should not impact the worker
+            pass
+        finally:
+            # Close the loop without affecting the global event loop
+            loop.close()
+
     batch["bytes"] = results
     return batch
 
@@ -131,7 +151,8 @@ vision_processor_config = vLLMEngineProcessorConfig(
         pipeline_parallel_size=1,
         max_model_len=32768,
         enable_chunked_prefill=True,
-        max_num_batched_tokens=1024,
+        max_num_batched_tokens=2048,
+        distributed_executor_backend="mp",
     ),
     runtime_env=dict(
         env_vars=dict(
@@ -140,9 +161,9 @@ vision_processor_config = vLLMEngineProcessorConfig(
         ),
     ),
     batch_size=8,
-    max_concurrent_batches=16,
+    max_concurrent_batches=32,
     accelerator_type="L4",
-    concurrency=(min_gpu_num, max_gpu_num),
+    concurrency=gpu_num,
     has_image=True,
 )
 
@@ -205,7 +226,7 @@ dataset = (
         num_cpus=2,
         memory=int(4 * 1024**3),
     ) # Download the dataset with memory allocation to avoid OOM errors
-    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=1024) 
+    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=1024)
     .drop_columns(["url"])
     .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5)
     .filter(lambda row: row["bytes"] is not None)
