@@ -14,8 +14,9 @@ from datetime import datetime, timezone
 # SCALABILITY CONFIGURATION FOR 2B+ IMAGES
 # ============================================================================
 # num_images = 100
-max_gpu_num = 96
-min_gpu_num = 32
+# Target 64 concurrent L4 replicas on g6.xlarge workers.
+max_gpu_num = 64
+min_gpu_num = 64
 tensor_parallelism = 1
 download_concurrency = 1000
 download_timeout = 5
@@ -130,7 +131,7 @@ vision_processor_config = vLLMEngineProcessorConfig(
         pipeline_parallel_size=1,
         max_model_len=32768,
         enable_chunked_prefill=True,
-        max_num_batched_tokens=2048,
+        max_num_batched_tokens=1024,
     ),
     runtime_env=dict(
         env_vars=dict(
@@ -140,7 +141,7 @@ vision_processor_config = vLLMEngineProcessorConfig(
     ),
     batch_size=8,
     max_concurrent_batches=16,
-    accelerator_type="A10G",
+    accelerator_type="L4",
     concurrency=(min_gpu_num, max_gpu_num),
     has_image=True,
 )
@@ -206,7 +207,7 @@ dataset = (
     ) # Download the dataset with memory allocation to avoid OOM errors
     .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=1024) 
     .drop_columns(["url"])
-    .map_batches(process_image_bytes, batch_size=50, num_cpus=1)
+    .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5)
     .filter(lambda row: row["bytes"] is not None)
 )
 

@@ -12,15 +12,17 @@ containerfile: ./Dockerfile
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
-  # OPTION 1: Auto-selection (current - works on Anyscale-hosted)
-  # Uses default disk sizes (~100GB). Cannot customize disk with auto-selection.
+  # Pin worker nodes to g6.xlarge (1xL4) so the vision workload lands on L4 GPUs.
+  worker_nodes:
+    - instance_type: g6.xlarge
+      min_nodes: 0
+      max_nodes: 64
   min_resources:
     CPU: 0
     GPU: 0
   max_resources:
     CPU: 530
-    GPU: 48
-  auto_select_worker_config: true
+    GPU: 64
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be

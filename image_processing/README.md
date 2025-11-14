@@ -10,7 +10,7 @@ The pipeline performs three main stages on each image:
 
 2. **Image Preprocessing**: Validates, resizes, and standardizes images to 128×128 JPEG format in RGB color space using PIL, filtering out corrupted or invalid images.
 
-3. **Vision Model Inference**: Runs the Qwen2.5-VL-3B-Instruct vision-language model using vLLM to generate captions or analyze image content, with automatic scaling from 32 to 96 GPU replicas based on workload.
+3. **Vision Model Inference**: Runs the Qwen2.5-VL-3B-Instruct vision-language model using vLLM to generate captions or analyze image content, scaling across up to 64 L4 GPU replicas based on workload.
 
 The entire pipeline is orchestrated by Ray Data, which handles distributed execution, fault tolerance, and resource management across your cluster.
 
@@ -19,7 +19,7 @@ The entire pipeline is orchestrated by Ray Data, which handles distributed execu
 - **Massive Scale**: Processes 2B+ images efficiently with automatic resource scaling
 - **High Throughput**: Concurrent downloads (1,000 connections) and batched inference (8 images per batch, 16 concurrent batches per GPU)
 - **Fault Tolerant**: Gracefully handles network failures, invalid images, and transient errors
-- **Cost Optimized**: Automatic GPU autoscaling (32-96 replicas) based on workload demand
+- **Cost Optimized**: Automatic GPU autoscaling (up to 64 L4 replicas) based on workload demand
 - **Production Ready**: Timestamped outputs, configurable memory limits, and structured error handling
 
 ## How to Run
@@ -46,8 +46,8 @@ Results will be written to `/mnt/shared_storage/process_images_output/{timestamp
 
 The pipeline is configured for high-throughput processing:
 
-- **Compute**: Up to 530 CPUs and 96 GPUs with auto-scaling
-- **Vision Model**: Qwen2.5-VL-3B-Instruct on A10G GPUs with vLLM
+- **Compute**: Up to 530 CPUs and 64 L4 GPUs (g6.xlarge workers) with auto-scaling
+- **Vision Model**: Qwen2.5-VL-3B-Instruct on NVIDIA L4 GPUs with vLLM
 - **Download**: 1,000 concurrent connections, 5-second timeout per image
 - **Batch Processing**: 50 images per download batch, 8 images per inference batch
 - **Output**: 100,000 rows per Parquet file for efficient storage
