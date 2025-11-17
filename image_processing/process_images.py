@@ -1,10 +1,11 @@
 import os
+import asyncio
 import ray
 from huggingface_hub import HfFileSystem
 from ray.data.llm import vLLMEngineProcessorConfig, build_llm_processor
 from PIL import Image
 from io import BytesIO
-import requests
+import aiohttp
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import time
@@ -16,7 +17,8 @@ import time
 # num_images = 100
 # Target 64 concurrent L4 replicas on g6.xlarge workers.
 
-gpu_num = 128
+num_gpu = 32
+num_cpu = 256
 tensor_parallelism = 1
 download_concurrency = 256
 download_timeout = 5
@@ -83,7 +85,6 @@ def image_download(batch):
     # Use a dedicated event loop per batch to avoid interfering with any
     # existing asyncio loops that Ray or vLLM may be running in this process.
     loop = asyncio.new_event_loop()
-
     try:
         results = loop.run_until_complete(download_images_async(urls))
     finally:
@@ -161,9 +162,9 @@ vision_processor_config = vLLMEngineProcessorConfig(
         ),
     ),
     batch_size=8,
-    max_concurrent_batches=32,
-    accelerator_type="L4",
-    concurrency=gpu_num,
+    max_concurrent_batches=16,
+    accelerator_type="A10G",
+    concurrency=num_gpu,
     has_image=True,
 )
 
@@ -201,7 +202,6 @@ vision_processor = build_llm_processor(
     postprocess=vision_postprocess,
 )
 
-num_cpu = 512
 tasks_per_cpu = 1
 concurrency = num_cpu * tasks_per_cpu
 
@@ -226,9 +226,9 @@ dataset = (
         num_cpus=2,
         memory=int(4 * 1024**3),
     ) # Download the dataset with memory allocation to avoid OOM errors
-    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=1024)
+    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
     .drop_columns(["url"])
-    .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5)
+    .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
     .filter(lambda row: row["bytes"] is not None)
 )
 
