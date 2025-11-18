@@ -1,5 +1,4 @@
 # View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
-
 name: process-images
 
 # When empty, use the default image. This can be an Anyscale-provided base image
@@ -12,9 +11,9 @@ containerfile: ./Dockerfile
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
-  # Pin worker nodes to g6.xlarge (1xL4) so the vision workload lands on L4 GPUs.
+  # Pin worker nodes to g6e.12xlarge so the vision workload lands on L40S GPUs.
   worker_nodes:
-    - instance_type: g5.12xlarge
+    - instance_type: g6e.12xlarge
       min_nodes: 0
       max_nodes: 8
   min_resources:

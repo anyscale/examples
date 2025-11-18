@@ -18,7 +18,7 @@ import time
 # Target 64 concurrent L4 replicas on g6.xlarge workers.
 
 num_gpu = 32
-num_cpu = 256
+num_cpu = 384
 tensor_parallelism = 1
 download_concurrency = 256
 download_timeout = 5
@@ -161,9 +161,9 @@ vision_processor_config = vLLMEngineProcessorConfig(
             VLLM_DISABLE_COMPILE_CACHE="1",
         ),
     ),
-    batch_size=8,
-    max_concurrent_batches=16,
-    accelerator_type="A10G",
+    batch_size=128,
+    max_concurrent_batches=128,
+    accelerator_type="L40S",
     concurrency=num_gpu,
     has_image=True,
 )
@@ -226,9 +226,9 @@ dataset = (
         num_cpus=2,
         memory=int(4 * 1024**3),
     ) # Download the dataset with memory allocation to avoid OOM errors
-    .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
+    .map_batches(image_download, batch_size=50, num_cpus=1, concurrency=num_cpu)
     .drop_columns(["url"])
-    .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
+    .map_batches(process_image_bytes, batch_size=50, num_cpus=1, concurrency=num_cpu)
     .filter(lambda row: row["bytes"] is not None)
 )
 
