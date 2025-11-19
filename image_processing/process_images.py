@@ -8,7 +8,6 @@ from io import BytesIO
 import aiohttp
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-import time
 
 
 # ============================================================================
@@ -17,11 +16,14 @@ import time
 # num_images = 100
 # Target 64 concurrent L4 replicas on g6.xlarge workers.
 
-num_gpu = 32
-num_cpu = 256
+num_gpu = 16
+num_cpu = 128
+# num_gpu = 32
+# num_cpu = 256
 tensor_parallelism = 1
 download_concurrency = 256
 download_timeout = 5
+MAX_IMAGES_TO_PROCESS = 1000000
 
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 output_path = f"/mnt/shared_storage/process_images_output/{timestamp}"
@@ -163,7 +165,7 @@ vision_processor_config = vLLMEngineProcessorConfig(
     ),
     batch_size=8,
     max_concurrent_batches=16,
-    accelerator_type="A10G",
+    accelerator_type="L40S",
     concurrency=num_gpu,
     has_image=True,
 )
@@ -225,12 +227,14 @@ dataset = (
         concurrency=concurrency,
         num_cpus=2,
         memory=int(4 * 1024**3),
-    ) # Download the dataset with memory allocation to avoid OOM errors
+    )  # Download the dataset with memory allocation to avoid OOM errors
+    .limit(MAX_IMAGES_TO_PROCESS)
     .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
     .drop_columns(["url"])
     .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
     .filter(lambda row: row["bytes"] is not None)
 )
+
 
 dataset = vision_processor(dataset)
 
