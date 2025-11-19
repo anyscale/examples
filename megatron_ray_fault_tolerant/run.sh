@@ -1,0 +1,1 @@
+anyscale job submit -f job.yaml
