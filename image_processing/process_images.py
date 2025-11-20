@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 # Target 64 concurrent L4 replicas on g6.xlarge workers.
 
 num_gpu = 16
-num_cpu = 128
+num_cpu = 256  # Should be able to do around 4.5K rows / s
 # num_gpu = 32
 # num_cpu = 256
 tensor_parallelism = 1
@@ -229,6 +229,7 @@ dataset = (
         memory=int(4 * 1024**3),
     )  # Download the dataset with memory allocation to avoid OOM errors
     .limit(MAX_IMAGES_TO_PROCESS)
+    .repartition(target_rows_per_block=1000)
     .map_batches(image_download, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)
     .drop_columns(["url"])
     .map_batches(process_image_bytes, batch_size=50, num_cpus=0.5, concurrency=num_cpu * 2)

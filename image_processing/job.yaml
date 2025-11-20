@@ -26,6 +26,9 @@ compute_config:
 #       min_nodes: 0
 #       max_nodes: 100
 #       market_type: PREFER_SPOT # Defaults to ON_DEMAND
+  max_resources:
+    CPU: 768
+    GPU: 64
   auto_select_worker_config: true
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
@@ -45,3 +48,6 @@ entrypoint: python process_images.py
 
 # If there is an error, do not retry.
 max_retries: 0
+
+# Kill the job after 15 minutes to control costs.
+timeout_s: 900
