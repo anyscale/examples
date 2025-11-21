@@ -1,35 +1,24 @@
 # View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
-
 name: process-images
 
 # When empty, use the default image. This can be an Anyscale-provided base image
-# like anyscale/ray:2.51.1-slim-py312-cu128, a user-provided base image (provided
+# like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
 # that it meets certain specs), or you can build new images using the Anyscale
 # image builder at https://console.anyscale-staging.com/v2/container-images.
-# image_uri:  # anyscale/ray:2.51.1-slim-py312-cu128
+# image_uri:  # anyscale/ray:2.43.0-slim-py312-cu125
 containerfile: ./Dockerfile
 
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
-#   head_node:
-#     instance_type: m5.2xlarge
-#   worker_nodes:
-#     - instance_type: m5.16xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#     - instance_type: m7a.24xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
-#     - instance_type: g4dn.2xlarge
-#       min_nodes: 0
-#       max_nodes: 100
-#       market_type: PREFER_SPOT # Defaults to ON_DEMAND
+  # Pin worker nodes to g6e.12xlarge so the vision workload lands on L40S GPUs.
+  worker_nodes:
+    - instance_type: g5.12xlarge
+      min_nodes: 0
+      max_nodes: 16
   max_resources:
     CPU: 768
     GPU: 64
-  auto_select_worker_config: true
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
@@ -48,6 +37,3 @@ entrypoint: python process_images.py
 
 # If there is an error, do not retry.
 max_retries: 0
-
-# Kill the job after 15 minutes to control costs.
-timeout_s: 900
