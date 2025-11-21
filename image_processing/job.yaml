@@ -37,3 +37,6 @@ entrypoint: python process_images.py
 
 # If there is an error, do not retry.
 max_retries: 0
+
+# Kill the job after 2 hours to control costs.
+timeout_s: 7200

@@ -254,6 +254,8 @@ ctx = ray.data.DataContext.get_current()
 target_block_size_mb = 128
 ctx.target_max_block_size = target_block_size_mb * 1024 * 1024
 ctx.use_push_based_shuffle = False
+ctx.retried_io_errors.append("429 Client Error: Too Many Requests for url")
+
 
 # The data processing pipeline includes the following steps:
 # 1. Read the 2B images dataset with url column
@@ -268,7 +270,6 @@ dataset = (
         columns=["url"],
         filesystem=HfFileSystem(token=os.environ["HF_TOKEN"]),
         concurrency=concurrency,
-        num_cpus=2,
         memory=int(4 * 1024**3),
     )  # Read dataset with memory allocation to avoid OOM errors
     .limit(num_images_to_process)
@@ -276,14 +277,12 @@ dataset = (
     .map_batches(
         image_download,
         batch_size=batch_size,  # Use optimized batch size
-        num_cpus=1,
         concurrency=num_cpu,
     )
     .drop_columns(["url"])  # Drop URL after download to save memory
     .map_batches(
         process_image_bytes,
         batch_size=batch_size,  # Consistent batch size
-        num_cpus=1,
         concurrency=num_cpu,
     )
     .filter(
