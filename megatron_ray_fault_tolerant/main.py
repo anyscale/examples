@@ -38,11 +38,11 @@ class TransformerConfig:
 
 @dataclass
 class MegatronConfig:
-    tensor_model_parallel_size: int = 1
-    pipeline_model_parallel_size: int = 1
+    tensor_model_parallel_size: int = 2
+    pipeline_model_parallel_size: int = 2
     context_parallel_size: int = 1
     expert_model_parallel_size: int = 1
-    expert_tensor_parallel_size: int = 1
+    expert_tensor_parallel_size: int = None
     ddp_config: DDPConfig = field(default_factory=DDPConfig)
     optimizer_config: OptimizerConfig = field(default_factory=OptimizerConfig)
     transformer_config: TransformerConfig = field(default_factory=TransformerConfig)
@@ -52,7 +52,7 @@ class MegatronConfig:
 class Config:
     model: str = "Qwen/Qwen3-0.6B"
     # TODO: test on actually more than 2 nodes for recovery, where we just want to ditch a whole node and replace it
-    num_nodes: int = 1
+    num_nodes: int = 2
     num_gpus_per_node: int = 4
     mini_batch_size: int = 16
     num_spare_gpus: int = 4
@@ -70,6 +70,15 @@ class Config:
 def main():
     config = Config()
     # create placement group including spare gpus
+
+    # need to set these env vars to avoid nccl error on nodes not supporting p2p
+    runtime_env = {
+        "env_vars": {
+            "NCCL_P2P_DISABLE": "1",
+            "NCCL_SHM_DISABLE": "1",
+        }
+    }
+    ray.init(runtime_env=runtime_env)
     pg = placement_group(
         [{"GPU": 1, "CPU": 1}] * config.num_nodes * config.num_gpus_per_node
         + [{"GPU": 1, "CPU": 1}] * config.num_spare_gpus,

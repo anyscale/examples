@@ -114,6 +114,7 @@ def offload_megatron_model_to_cpu(models):
     - fp32 main_parameter chunked in model and dp group
     - fp32 optimizer state chunked in model and dp group
     """
+    # all_model_weights
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
             model_chunk_all_buffers = [

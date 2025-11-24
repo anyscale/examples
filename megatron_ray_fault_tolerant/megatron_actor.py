@@ -127,6 +127,7 @@ class MegatronActor:
             use_sharp=False,
             context_parallel_size=self.megatron_config.context_parallel_size,
             nccl_communicator_config_path=None,
+            order="tp-pp-dp",
         )
         self.set_seed(self.seed)
         self.world_size = dist.get_world_size()
@@ -504,15 +505,15 @@ class MegatronActor:
 
     def offload_to_cpu(self):
         self.all_buffer_sizes = offload_megatron_grads_to_cpu(self.actor_module)
-        offload_megatron_model_to_cpu(self.actor_module)
-        offload_megatron_optimizer(self.optimizer)
+        self.all_model_weights_and_sizes = offload_megatron_model_to_cpu(self.actor_module)
+        self.all_optimizer_weights_and_sizes = offload_megatron_optimizer(self.optimizer)
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     def backload_to_gpu(self):
-        load_megatron_grads_to_gpu(self.actor_module)
-        load_megatron_model_to_gpu(self.actor_module)
-        load_megatron_optimizer(self.optimizer)
+        load_megatron_grads_to_gpu(self.actor_module, self.all_buffer_sizes)
+        load_megatron_model_to_gpu(self.actor_module, self.all_model_weights_and_sizes)
+        load_megatron_optimizer(self.optimizer, self.all_optimizer_weights_and_sizes)
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
