@@ -5,6 +5,7 @@ import ray
 from typing import Optional, List
 from megatron_actor import MegatronActorGroup
 from ray.util.placement_group import placement_group
+from ray.runtime_env import RuntimeEnv, RuntimeEnvConfig
 
 import random
 import time
@@ -72,20 +73,14 @@ def main():
     config = Config()
     # create placement group including spare gpus
 
-    # need to set these env vars to avoid nccl error on nodes not supporting p2p
-    runtime_env = {
-        "env_vars": {
-            "NCCL_P2P_DISABLE": "1",
-            "NCCL_SHM_DISABLE": "1",
-        }
-    }
-    ray.init(runtime_env=runtime_env)
     pg = placement_group(
-        [{"GPU": 1, "CPU": 1}] * config.num_nodes * config.num_gpus_per_node
-        + [{"GPU": 1, "CPU": 1}] * config.num_spare_gpus,
+        [{"GPU": 1, "CPU": 12}] * config.num_nodes * config.num_gpus_per_node
+        + [{"GPU": 1, "CPU": 12}] * config.num_spare_gpus,
         strategy="PACK",
     )
+
     ray.get(pg.ready(), timeout=1200)
+    print("Placement group ready")
     # this is needed because placement group gpu bundle order is not deterministic: https://github.com/ray-project/ray/issues/51117
     reordered_bundle_indices = get_reordered_bundle_indices(pg)
 
@@ -94,7 +89,7 @@ def main():
         num_nodes=config.num_nodes,
         num_gpus_per_node=config.num_gpus_per_node,
         pg=pg,
-        bundle_indices=reordered_bundle_indices[:-config.num_spare_gpus],
+        bundle_indices=reordered_bundle_indices[: -config.num_spare_gpus],
     )
     actor_group.initiate_worker_process_group()
     ray.get(actor_group.async_init_model(config.model))
@@ -105,7 +100,7 @@ def main():
         num_nodes=config.num_spare_gpus // config.num_gpus_per_node,
         num_gpus_per_node=config.num_gpus_per_node,
         pg=pg,
-        bundle_indices=reordered_bundle_indices[-config.num_spare_gpus:],
+        bundle_indices=reordered_bundle_indices[-config.num_spare_gpus :],
     )
     # just place but don't initiate the worker process group for the backup actor group
     # call a function to make sure the actors are placed
