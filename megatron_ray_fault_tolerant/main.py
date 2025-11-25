@@ -72,14 +72,6 @@ def main():
     config = Config()
     # create placement group including spare gpus
 
-    # need to set these env vars to avoid nccl error on nodes not supporting p2p
-    runtime_env = {
-        "env_vars": {
-            "NCCL_P2P_DISABLE": "1",
-            "NCCL_SHM_DISABLE": "1",
-        }
-    }
-    ray.init(runtime_env=runtime_env)
     pg = placement_group(
         [{"GPU": 1, "CPU": 12}] * config.num_nodes * config.num_gpus_per_node
         + [{"GPU": 1, "CPU": 12}] * config.num_spare_gpus,
