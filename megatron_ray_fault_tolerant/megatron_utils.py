@@ -22,6 +22,7 @@
 
 import torch
 import gc
+from typing import Any, Dict, List, Union
 from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.transformer.module import Float16Module
 from megatron.core.optimizer import ChainedOptimizer
@@ -90,10 +91,12 @@ def load_megatron_grads_to_gpu(models, buffer_sizes):
                 model_chunk.buffers,
                 model_chunk.expert_parallel_buffers,
             ]
-            for j, buffers in enumerate(model_chunk_all_buffers):
+            j = 0
+            for buffers in model_chunk_all_buffers:
                 for buffer in buffers:
                     buffer.grad_data.storage().resize_(buffer_sizes[i][j])
                     buffer.grad_data.zero_()
+                    j += 1
         else:
             # we need this for ref module
             for _, param in model_chunk.named_parameters():
@@ -114,51 +117,59 @@ def offload_megatron_model_to_cpu(models):
     - fp32 main_parameter chunked in model and dp group
     - fp32 optimizer state chunked in model and dp group
     """
-    # all_model_weights
+    all_model_buffers_param_data = []
+    all_model_buffers_param_data_sizes = []
     for model_chunk in models:
         if isinstance(model_chunk, DDP):
             model_chunk_all_buffers = [
                 model_chunk.buffers,
                 model_chunk.expert_parallel_buffers,
             ]
+            model_chunk_buffers_param_data = []
+            model_chunk_buffers_param_data_sizes = []
             for buffers in model_chunk_all_buffers:
                 for buffer in buffers:
                     # offload parameters
                     if buffer.param_data.storage().size() > 0:
-                        buffer.param_data.cpu_data = (
+                        model_chunk_buffers_param_data.append(
                             buffer.param_data.data.cpu().pin_memory()
                         )
-                        buffer.param_data_size = buffer.param_data.storage().size()
+                        model_chunk_buffers_param_data_sizes.append(buffer.param_data.storage().size())
                         buffer.param_data.storage().resize_(0)
 
                     assert (
-                        buffer.param_data_size
-                        == buffer.param_data.cpu_data.storage().size()
+                        model_chunk_buffers_param_data_sizes[-1]
+                        == model_chunk_buffers_param_data[-1].data.storage().size()
                     )
+            all_model_buffers_param_data.append(model_chunk_buffers_param_data)
+            all_model_buffers_param_data_sizes.append(model_chunk_buffers_param_data_sizes)
         else:
             # we need this for ref module
             for _, param in model_chunk.named_parameters():
                 param.data = param.data.to("cpu", non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
+    return all_model_buffers_param_data, all_model_buffers_param_data_sizes
 
 
 @torch.no_grad()
-def load_megatron_model_to_gpu(models):
-    for model_chunk in models:
+def load_megatron_model_to_gpu(models, all_model_buffers_param_data, all_model_buffers_param_data_sizes):
+    for i, model_chunk in enumerate(models):
         if isinstance(model_chunk, DDP):
             model_chunk_all_buffers = [
                 model_chunk.buffers,
                 model_chunk.expert_parallel_buffers,
             ]
+            j = 0
             for buffers in model_chunk_all_buffers:
                 for buffer in buffers:
                     if buffer.param_data.storage().size() == 0:
-                        buffer.param_data.storage().resize_(buffer.param_data_size)
+                        buffer.param_data.storage().resize_(all_model_buffers_param_data_sizes[i][j])
                         # copy data from cpu to cuda
                         buffer.param_data.copy_(
-                            buffer.param_data.cpu_data, non_blocking=True
+                            all_model_buffers_param_data[i][j], non_blocking=True
                         )
+                    j += 1
         else:
             # we need this for ref module
             device_id = torch.cuda.current_device()
@@ -166,7 +177,6 @@ def load_megatron_model_to_gpu(models):
                 param.data = param.data.to(device_id, non_blocking=True)
     gc.collect()
     torch.cuda.empty_cache()
-
 
 @torch.no_grad()
 def offload_megatron_copy_params(optimizers):
@@ -267,6 +277,77 @@ def offload_megatron_optimizer(optimizers):
                 v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
         torch.cuda.empty_cache()
+
+
+@torch.no_grad()
+def snapshot_optimizer_state_cpu(
+    optimizers: Union[torch.optim.Optimizer, ChainedOptimizer]
+) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Offload optimizer tensors to CPU and return a Python object snapshot of the state.
+    The returned object can later be used to restore/override a freshly created optimizer.
+    Supports both single Megatron optimizers and `ChainedOptimizer`.
+
+    Returns:
+        - dict when a single optimizer is provided
+        - list[dict] when a ChainedOptimizer is provided (one dict per underlying optimizer)
+    """
+    # Ensure all relevant optimizer tensors are on CPU first (params and state)
+    offload_megatron_optimizer(optimizers)
+
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    snapshots: List[Dict[str, Any]] = []
+    for _opt in _iter_opts(optimizers):
+        base_opt = getattr(_opt, "optimizer", _opt)
+        # state_dict() returns a pure-Python object referencing tensors (now on CPU)
+        snapshots.append(base_opt.state_dict())
+
+    if isinstance(optimizers, ChainedOptimizer):
+        return snapshots
+    return snapshots[0]
+
+
+@torch.no_grad()
+def apply_optimizer_state_snapshot(
+    optimizers: Union[torch.optim.Optimizer, ChainedOptimizer],
+    snapshot: Union[Dict[str, Any], List[Dict[str, Any]]],
+) -> None:
+    """
+    Apply a previously captured CPU snapshot to the provided optimizer(s),
+    overriding their state. Supports both single optimizers and `ChainedOptimizer`.
+
+    If the underlying optimizer supports device specialization (e.g., HybridDeviceOptimizer),
+    this will also move newly loaded states to the correct device.
+    """
+    def _iter_opts(opt):
+        if isinstance(opt, ChainedOptimizer):
+            return opt.chained_optimizers
+        return [opt]
+
+    if isinstance(optimizers, ChainedOptimizer):
+        if not isinstance(snapshot, (list, tuple)):
+            raise ValueError("Expected a list of state_dicts for ChainedOptimizer snapshot.")
+        if len(snapshot) != len(optimizers.chained_optimizers):
+            raise ValueError(
+                f"Snapshot length ({len(snapshot)}) does not match number of chained optimizers "
+                f"({len(optimizers.chained_optimizers)})."
+            )
+        items = zip(optimizers.chained_optimizers, snapshot)
+    else:
+        if not isinstance(snapshot, dict):
+            raise ValueError("Expected a dict state_dict snapshot for a single optimizer.")
+        items = [ (optimizers, snapshot) ]
+
+    for _opt, _state in items:
+        base_opt = getattr(_opt, "optimizer", _opt)
+        base_opt.load_state_dict(_state)
+        # Align newly loaded states to the intended device if available (Megatron HybridDeviceOptimizer)
+        if hasattr(base_opt, "_move_new_state_to_right_device"):
+            base_opt._move_new_state_to_right_device()
 
 
 @torch.no_grad()

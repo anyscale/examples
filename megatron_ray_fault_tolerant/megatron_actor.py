@@ -46,9 +46,10 @@ from optimizer import (
 from megatron_model_wrapper import MegatronModelWrapper
 from megatron_utils import (
     offload_megatron_model_to_cpu,
-    offload_megatron_optimizer,
+    snapshot_optimizer_state_cpu,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
+    apply_optimizer_state_snapshot,
     offload_megatron_grads_to_cpu,
     load_megatron_grads_to_gpu,
 )
@@ -330,6 +331,7 @@ class MegatronActor:
         )
 
         micro_buffer = []
+        all_metrics = []
         for local_step, experience in enumerate(pbar):
             experience.to_device(torch.cuda.current_device())
             sequences = experience.sequences
@@ -360,17 +362,19 @@ class MegatronActor:
                 seq_len = micro_buffer[0]["sequences"].shape[1]
                 micro_bsz = micro_buffer[0]["sequences"].shape[0]
 
-                self.model.forward_backward_mini_batch(
+                metrics = self.model.forward_backward_mini_batch(
                     micro_batches=micro_buffer,
                     seq_len=seq_len,
                     micro_batch_size=micro_bsz,
                 )
-
+                all_metrics.extend(metrics)
                 _, grad_norm, _ = self.optimizer.step()
                 self.scheduler.step(1)
                 self.optimizer.zero_grad()
 
         torch.distributed.barrier()
+
+        return all_metrics
 
     def save_checkpoint(self, ckpt_dir: str):
         # Extract base model.
@@ -409,7 +413,7 @@ class MegatronActor:
         # Save the checkpoint across ranks in parallel.
         save_strategy = get_default_save_sharded_strategy("torch_dist")
         save_strategy = FullyParallelSaveStrategyWrapper(
-            save_strategy, mpu.get_data_parallel_group(with_context_parallel=True)
+            save_strategy, mpu.get_model_parallel_group()
         )
 
         with io.local_work_dir(ckpt_dir) as work_dir:
@@ -464,11 +468,12 @@ class MegatronActor:
 
         # currently, if the ckpt_dir is a cloud path, we download all the contents of the cloud path to a local directory
         # this should be improved to download only the relevant shards for this actor to load
+        # prefixes=[f"__{self._rank}_", ".metadata", "common.pt", "metadata.json"]
         with io.local_read_dir(ckpt_dir) as read_dir:
             # Load the checkpoint in parallel.
             load_strategy = get_default_load_sharded_strategy(read_dir)
             load_strategy = FullyParallelLoadStrategyWrapper(
-                load_strategy, mpu.get_data_parallel_group(with_context_parallel=True)
+                load_strategy, mpu.get_model_parallel_group()
             )
             state_dict = dist_checkpointing.load(
                 sharded_state_dict=sharded_state_dict,
@@ -505,15 +510,16 @@ class MegatronActor:
 
     def offload_to_cpu(self):
         self.all_buffer_sizes = offload_megatron_grads_to_cpu(self.actor_module)
-        self.all_model_weights_and_sizes = offload_megatron_model_to_cpu(self.actor_module)
-        self.all_optimizer_weights_and_sizes = offload_megatron_optimizer(self.optimizer)
+        self.all_model_buffers_param_data, self.all_model_buffers_param_data_sizes = offload_megatron_model_to_cpu(self.actor_module)
+        self.all_optimizer_state_dict = snapshot_optimizer_state_cpu(self.optimizer)
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     def backload_to_gpu(self):
         load_megatron_grads_to_gpu(self.actor_module, self.all_buffer_sizes)
-        load_megatron_model_to_gpu(self.actor_module, self.all_model_weights_and_sizes)
-        load_megatron_optimizer(self.optimizer, self.all_optimizer_weights_and_sizes)
+        load_megatron_model_to_gpu(self.actor_module, self.all_model_buffers_param_data, self.all_model_buffers_param_data_sizes)
+        apply_optimizer_state_snapshot(self.optimizer, self.all_optimizer_state_dict)
+        load_megatron_optimizer(self.optimizer)
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
@@ -800,13 +806,20 @@ class MegatronActorGroup:
         return object_refs
 
     def async_run_method_no_dispatch(
-        self, method_name: str, *args, **kwargs
+        self, method_name: str, actor_ids: List[int] = None, *args, **kwargs
     ) -> List[ObjectRef]:
         """Run a method on all actors without dispatching."""
-        return [
-            getattr(handle, method_name).remote(*args, **kwargs)
-            for handle in self._actor_handlers
-        ]
+        if actor_ids is None:
+            return [
+                getattr(handle, method_name).remote(*args, **kwargs)
+                for handle in self._actor_handlers
+            ]
+        else:
+            object_refs = []
+            for i, handle in enumerate(self._actor_handlers):
+                if i in actor_ids:
+                    object_refs.append(getattr(handle, method_name).remote(*args, **kwargs))
+            return object_refs
 
     def _check_actor_alive(self, actor_handle) -> bool:
         """Check if an actor is still alive by attempting to call a simple method."""

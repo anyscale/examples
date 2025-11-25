@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import fsspec
 from loguru import logger
 from datetime import datetime, timezone, timedelta
+from typing import List
 
 # Optional AWS deps (present when s3fs is installed)
 try:
@@ -218,7 +219,7 @@ def upload_directory(local_path: str, cloud_path: str) -> None:
     logger.info(f"Uploaded contents of {local_path} to {cloud_path}")
 
 
-def download_directory(cloud_path: str, local_path: str) -> None:
+def download_directory(cloud_path: str, local_path: str, prefixes: List[str] = None) -> None:
     """Download a cloud directory to local storage."""
     if not is_cloud_path(cloud_path):
         raise ValueError(f"Source must be a cloud path, got: {cloud_path}")
@@ -235,6 +236,8 @@ def download_directory(cloud_path: str, local_path: str) -> None:
             if remote_file.endswith("/"):
                 continue
             rel_path = remote_file[len(remote_path_stripped) :].lstrip("/")
+            if prefixes and not any(rel_path.startswith(prefix) for prefix in prefixes):
+                continue
             local_file_path = os.path.join(local_path, rel_path)
             parent_dir = os.path.dirname(local_file_path)
             if parent_dir:
@@ -246,6 +249,8 @@ def download_directory(cloud_path: str, local_path: str) -> None:
             if remote_file.endswith("/"):
                 continue
             rel_path = remote_file[len(cloud_path_normalized) :].lstrip("/")
+            if prefixes and not any(rel_path.startswith(prefix) for prefix in prefixes):
+                continue
             local_file_path = os.path.join(local_path, rel_path)
             parent_dir = os.path.dirname(local_file_path)
             if parent_dir:
@@ -290,7 +295,7 @@ def local_work_dir(output_path: str):
 
 
 @contextmanager
-def local_read_dir(input_path: str):
+def local_read_dir(input_path: str, prefixes: List[str] = None):
     """
     Context manager that provides a local directory with content from input_path.
 
@@ -299,6 +304,7 @@ def local_read_dir(input_path: str):
 
     Args:
         input_path: The source path (local or cloud)
+        prefixes: If using cloud path, only download files that start with any of these prefixes. If None, download all files.
 
     Yields:
         str: Local directory path containing the content
@@ -311,7 +317,7 @@ def local_read_dir(input_path: str):
     if is_cloud_path(input_path):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Download everything from cloud path to temp_dir
-            download_directory(input_path, temp_dir)
+            download_directory(input_path, temp_dir, prefixes)
             logger.info(f"Downloaded directory contents from {input_path}")
             yield temp_dir
     else:
