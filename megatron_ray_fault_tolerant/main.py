@@ -4,6 +4,7 @@ import ray
 from typing import Optional, List
 from megatron_actor import MegatronActorGroup
 from ray.util.placement_group import placement_group
+from ray.runtime_env import RuntimeEnv, RuntimeEnvConfig
 
 import random
 import time
@@ -50,9 +51,9 @@ class MegatronConfig:
 
 @dataclass
 class Config:
-    model: str = "Qwen/Qwen3-0.6B"
+    model: str = "Qwen/Qwen3-4B"
     # TODO: test on actually more than 2 nodes for recovery, where we just want to ditch a whole node and replace it
-    num_nodes: int = 2
+    num_nodes: int = 8
     num_gpus_per_node: int = 4
     mini_batch_size: int = 16
     num_spare_gpus: int = 4
@@ -80,11 +81,13 @@ def main():
     }
     ray.init(runtime_env=runtime_env)
     pg = placement_group(
-        [{"GPU": 1, "CPU": 1}] * config.num_nodes * config.num_gpus_per_node
-        + [{"GPU": 1, "CPU": 1}] * config.num_spare_gpus,
+        [{"GPU": 1, "CPU": 12}] * config.num_nodes * config.num_gpus_per_node
+        + [{"GPU": 1, "CPU": 12}] * config.num_spare_gpus,
         strategy="PACK",
     )
+
     ray.get(pg.ready(), timeout=1200)
+    print("Placement group ready")
     # this is needed because placement group gpu bundle order is not deterministic: https://github.com/ray-project/ray/issues/51117
     reordered_bundle_indices = get_reordered_bundle_indices(pg)
 
@@ -93,7 +96,7 @@ def main():
         num_nodes=config.num_nodes,
         num_gpus_per_node=config.num_gpus_per_node,
         pg=pg,
-        bundle_indices=reordered_bundle_indices[:-config.num_spare_gpus],
+        bundle_indices=reordered_bundle_indices[: -config.num_spare_gpus],
     )
     actor_group.initiate_worker_process_group()
     ray.get(actor_group.async_init_model(config.model))
@@ -104,7 +107,7 @@ def main():
         num_nodes=config.num_spare_gpus // config.num_gpus_per_node,
         num_gpus_per_node=config.num_gpus_per_node,
         pg=pg,
-        bundle_indices=reordered_bundle_indices[-config.num_spare_gpus:],
+        bundle_indices=reordered_bundle_indices[-config.num_spare_gpus :],
     )
     # just place but don't initiate the worker process group for the backup actor group
     # call a function to make sure the actors are placed
@@ -129,14 +132,14 @@ def main():
     # TODO: add a cpu offload (or cpu save memory) call here
     # in order for the healthy actors to save a copy of the model and optimizer state to cpu memory
     # ray.get(actor_group.async_run_ray_method("pass_through", "offload_to_cpu"))
-    
+
     # TODO: run another training batch here and save results but don't save checkpoint
 
     # randomly kill an actor to simulate fault tolerance scenario
     # TODO: go deeper into the actor code and throw an exception on a given node and catch it here
     print("Simulating failure and recovery...")
     start_time = time.time()
-    
+
     actor_id = random.randint(0, len(actor_group.actor_infos) - 1)
     # get the whole dp group associated with the failed actor
     dp_group_actors = []
@@ -191,7 +194,9 @@ def main():
             "pass_through", "ppo_train", batch_after_recovery
         )
     )
-    print(f"Training step 2 (after recovery) took {time.time() - start_time:.2f} seconds")
+    print(
+        f"Training step 2 (after recovery) took {time.time() - start_time:.2f} seconds"
+    )
     print("Recovery successful! Training works with remaining actors.")
 
 

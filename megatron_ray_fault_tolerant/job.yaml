@@ -12,17 +12,17 @@ containerfile: ./Dockerfile
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
 compute_config:
-  # Pin worker nodes to g6.xlarge (1xL4) so the vision workload lands on L4 GPUs.
+  # Pin worker nodes to g5.xlarge (A10G) so the fault tolerance workload lands on A10G GPUs.
   worker_nodes:
-    - instance_type: g6e.12xlarge
+    - instance_type: g5.12xlarge
       min_nodes: 0
-      max_nodes: 2
+      max_nodes: 9
   min_resources:
     CPU: 0
     GPU: 0
   max_resources:
-    CPU: 384
-    GPU: 64
+    CPU: 432
+    GPU: 36
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
