@@ -412,9 +412,7 @@ class MegatronActor:
 
         # Save the checkpoint across ranks in parallel.
         save_strategy = get_default_save_sharded_strategy("torch_dist")
-        save_strategy = FullyParallelSaveStrategyWrapper(
-            save_strategy, mpu.get_model_parallel_group()
-        )
+        save_strategy = FullyParallelSaveStrategyWrapper(save_strategy)
 
         with io.local_work_dir(ckpt_dir) as work_dir:
             # synchronous checkpointing for now
@@ -466,19 +464,19 @@ class MegatronActor:
         if scheduler and load_lr_scheduler_states:
             sharded_state_dict["lr_scheduler"] = scheduler.state_dict()
 
+        prefixes=[f"__{self._rank}_", ".metadata", "common.pt", "metadata.json"]
+
         # currently, if the ckpt_dir is a cloud path, we download all the contents of the cloud path to a local directory
         # this should be improved to download only the relevant shards for this actor to load
-        # prefixes=[f"__{self._rank}_", ".metadata", "common.pt", "metadata.json"]
-        with io.local_read_dir(ckpt_dir) as read_dir:
+        with io.local_read_dir(ckpt_dir, local_path=self.cfg.local_ckpt_dir, prefixes=prefixes) as read_dir:
             # Load the checkpoint in parallel.
             load_strategy = get_default_load_sharded_strategy(read_dir)
-            load_strategy = FullyParallelLoadStrategyWrapper(
-                load_strategy, mpu.get_model_parallel_group()
-            )
+            load_strategy = FullyParallelLoadStrategyWrapper(load_strategy)
             state_dict = dist_checkpointing.load(
                 sharded_state_dict=sharded_state_dict,
                 checkpoint_dir=read_dir,
                 sharded_strategy=load_strategy,
+                strict="assume_ok_unexpected",
             )
 
         # Load the model, optimizer, and scheduler state dicts.

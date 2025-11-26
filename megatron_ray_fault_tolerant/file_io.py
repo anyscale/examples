@@ -15,7 +15,7 @@ from contextlib import contextmanager
 import fsspec
 from loguru import logger
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Optional
 
 # Optional AWS deps (present when s3fs is installed)
 try:
@@ -295,7 +295,7 @@ def local_work_dir(output_path: str):
 
 
 @contextmanager
-def local_read_dir(input_path: str, prefixes: List[str] = None):
+def local_read_dir(input_path: str, local_path: Optional[str] = None, prefixes: List[str] = None):
     """
     Context manager that provides a local directory with content from input_path.
 
@@ -304,6 +304,7 @@ def local_read_dir(input_path: str, prefixes: List[str] = None):
 
     Args:
         input_path: The source path (local or cloud)
+        local_path: The local path to download the directory to. If None, use a temporary directory.
         prefixes: If using cloud path, only download files that start with any of these prefixes. If None, download all files.
 
     Yields:
@@ -315,11 +316,17 @@ def local_read_dir(input_path: str, prefixes: List[str] = None):
             model = AutoModel.from_pretrained(read_dir)
     """
     if is_cloud_path(input_path):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Download everything from cloud path to temp_dir
-            download_directory(input_path, temp_dir, prefixes)
+        if local_path is None:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Download everything from cloud path to temp_dir
+                download_directory(input_path, temp_dir, prefixes)
+                logger.info(f"Downloaded directory contents from {input_path}")
+                yield temp_dir
+        else:
+            # Download everything from cloud path to local_path
+            download_directory(input_path, local_path, prefixes)
             logger.info(f"Downloaded directory contents from {input_path}")
-            yield temp_dir
+            yield local_path
     else:
         # For local paths, use directly (but check it exists)
         if not exists(input_path):

@@ -61,8 +61,9 @@ class Config:
     micro_train_batch_size_per_gpu: int = 2
     megatron_config: MegatronConfig = field(default_factory=MegatronConfig)
     ckpt_dir: str = (
-        os.environ["ANYSCALE_ARTIFACT_STORAGE"] + "/megatron_fault_tolerance/ckpt3/"
+        os.environ["ANYSCALE_ARTIFACT_STORAGE"] + "/megatron_fault_tolerance/ckpt4/"
     )
+    local_ckpt_dir: str = "/tmp/megatron_fault_tolerance/ckpt4/" # used for storing checkpoint on local disk when downloading from cloud
     # algorithm config
     eps_clip_low: float = 0.2
     eps_clip_high: float = 0.2
@@ -72,6 +73,14 @@ class Config:
 def main():
     config = Config()
     # create placement group including spare gpus
+    # need to set these env vars to avoid nccl error on nodes not supporting p2p
+    runtime_env = {
+        "env_vars": {
+            "NCCL_P2P_DISABLE": "1",
+            "NCCL_SHM_DISABLE": "1",
+        }
+    }
+    ray.init(runtime_env=runtime_env)
 
     pg = placement_group(
         [{"GPU": 1, "CPU": 12}] * config.num_nodes * config.num_gpus_per_node
@@ -119,6 +128,7 @@ def main():
 
     # TODO: add a cpu offload (or cpu save memory) call here
     # in order for the healthy actors to save a copy of the model and optimizer state to cpu memory
+    # figure out if it's possible to do keep this on GPU instead of CPU
     print("Saving a copy of the model and optimizer state to cpu memory...")
     ray.get(actor_group.async_run_ray_method("pass_through", "offload_to_cpu"))
     ray.get(actor_group.async_run_ray_method("pass_through", "backload_to_gpu"))
@@ -133,42 +143,45 @@ def main():
     # TODO: go deeper into the actor code and throw an exception on a given node and catch it here
     # try to potentially integrate nvidia-fault-tolerance extension here?
     with Timer("Simulating failure and recovery with hot spares"):
-    
-        actor_id = random.randint(0, len(actor_group.actor_infos) - 1)
-        # get the whole dp group associated with the failed actor
-        dp_group_actors = []
-        for actor_info in actor_group.actor_infos:
-            if actor_info.rank.dp == actor_group.actor_infos[actor_id].rank.dp:
-                dp_group_actors.append(actor_info)
-        print(
-            f"Killing actors {[actor_info.rank for actor_info in dp_group_actors]} to simulate failure..."
-        )
-        for actor_info in dp_group_actors:
-            ray.kill(actor_info.handle)
+        
+        with Timer("Killing actors to simulate failure"):
+            actor_id = random.randint(0, len(actor_group.actor_infos) - 1)
+            # get the whole dp group associated with the failed actor
+            dp_group_actors = []
+            for actor_info in actor_group.actor_infos:
+                if actor_info.rank.dp == actor_group.actor_infos[actor_id].rank.dp:
+                    dp_group_actors.append(actor_info)
+            print(
+                f"Killing actors {[actor_info.rank for actor_info in dp_group_actors]} to simulate failure..."
+            )
+            for actor_info in dp_group_actors:
+                ray.kill(actor_info.handle)
 
         # Destroy process groups on all actors (including dead ones, which will fail gracefully)
-        print("Destroying old process groups...")
-        try:
-            ray.get(
-                actor_group.async_run_ray_method(
-                    "pass_through", "destroy_worker_process_group"
+        with Timer("Destroying old process groups..."):
+            try:
+                ray.get(
+                    actor_group.async_run_ray_method(
+                        "pass_through", "destroy_worker_process_group"
+                    )
                 )
-            )
-        except Exception as e:
-            print(f"Some actors failed during destroy (expected): {e}")
+            except Exception as e:
+                print(f"Some actors failed during destroy (expected): {e}")
 
-        alive_actor_ids = []
-        dead_actor_ids = []
-        for i, actor_info in enumerate(actor_group.actor_infos):
-            is_alive = actor_group._check_actor_alive(actor_info.handle)
-            print(f"Actor {i} (handle: {actor_info.handle}) is alive: {is_alive}")
-            if is_alive:
-                alive_actor_ids.append(i)
-            else:
-                dead_actor_ids.append(i)
-        # Recover from failure: remove dead actors and re-initialize process group
-        print("Recovering from actor failure...")
-        actor_group.recover_from_failure(backup_actor_group)
+        with Timer("Checking actor status..."):
+            alive_actor_ids = []
+            dead_actor_ids = []
+            for i, actor_info in enumerate(actor_group.actor_infos):
+                is_alive = actor_group._check_actor_alive(actor_info.handle)
+                print(f"Actor {i} (handle: {actor_info.handle}) is alive: {is_alive}")
+                if is_alive:
+                    alive_actor_ids.append(i)
+                else:
+                    dead_actor_ids.append(i)
+
+        with Timer("Recovering from actor failure..."):
+            # Recover from failure: remove dead actors and re-initialize process group
+            actor_group.recover_from_failure(backup_actor_group)
 
         # load checkpoint on all actors
         # TODO: improve the logic here
@@ -176,11 +189,12 @@ def main():
         # on previously healthy actors we want to restore weights and optimizer state from cpu memory
         # ray.get(actor_group.async_run_method_no_dispatch("backload_to_gpu", actor_ids=alive_actor_ids))
         # only for new actors, we want to load the checkpoint
-        ray.get(
-            actor_group.async_run_method_no_dispatch(
-                "load_checkpoint", ckpt_dir=config.ckpt_dir
+        with Timer("Loading checkpoint..."):
+            ray.get(
+                actor_group.async_run_method_no_dispatch(
+                    "load_checkpoint", ckpt_dir=config.ckpt_dir
+                )
             )
-        )
 
     # TODO: check that results here are the same as before the failure when resuming from checkpoint
     # Test that training still works after recovery
@@ -227,14 +241,12 @@ def baseline():
     ray.get(actor_group.async_run_ray_method("mesh", "ppo_train", batch))
 
     # save checkpoint
-    start_time = time.time()
-    ray.get(
-        actor_group.async_run_ray_method(
-            "pass_through", "save_checkpoint", ckpt_dir=config.ckpt_dir
+    with Timer("Saving checkpoint..."):
+        ray.get(
+            actor_group.async_run_ray_method(
+                "pass_through", "save_checkpoint", ckpt_dir=config.ckpt_dir
+            )
         )
-    )
-    print(f"Checkpoint saving took {time.time() - start_time:.2f} seconds")
-
     # simulate full teardown and restart
     with Timer("Full teardown and restart"):
         ray.shutdown()
@@ -256,12 +268,12 @@ def baseline():
         )
         actor_group.initiate_worker_process_group()
         ray.get(actor_group.async_init_model(config.model))
-
-        ray.get(
-            actor_group.async_run_method_no_dispatch(
-                "load_checkpoint", ckpt_dir=config.ckpt_dir
+        with Timer("Loading checkpoint..."):
+            ray.get(
+                actor_group.async_run_method_no_dispatch(
+                    "load_checkpoint", ckpt_dir=config.ckpt_dir
+                )
             )
-        )
 
     batch = get_test_training_batch(config.model, batch_size=32)
     ray.get(actor_group.async_run_ray_method("mesh", "ppo_train", batch))
