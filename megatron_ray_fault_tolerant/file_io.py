@@ -16,7 +16,7 @@ import fsspec
 from loguru import logger
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-
+from timer import Timer
 # Optional AWS deps (present when s3fs is installed)
 try:
     import botocore.session as _botocore_session
@@ -286,8 +286,9 @@ def local_work_dir(output_path: str):
                 yield temp_dir
             finally:
                 # Upload everything from temp_dir to cloud path
-                upload_directory(temp_dir, output_path)
-                logger.info(f"Uploaded directory contents to {output_path}")
+                with Timer("Uploading directory contents to cloud path..."):
+                    upload_directory(temp_dir, output_path)
+                    logger.info(f"Uploaded directory contents to {output_path}")
     else:
         # For local paths, ensure directory exists and use it directly
         makedirs(output_path, exist_ok=True)
@@ -324,9 +325,10 @@ def local_read_dir(input_path: str, local_path: Optional[str] = None, prefixes: 
                 yield temp_dir
         else:
             # Download everything from cloud path to local_path
-            download_directory(input_path, local_path, prefixes)
-            logger.info(f"Downloaded directory contents from {input_path}")
-            yield local_path
+            with Timer("Downloading directory contents to cloud path..."):
+                download_directory(input_path, local_path, prefixes)
+                logger.info(f"Downloaded directory contents from {input_path}")
+                yield local_path
     else:
         # For local paths, use directly (but check it exists)
         if not exists(input_path):

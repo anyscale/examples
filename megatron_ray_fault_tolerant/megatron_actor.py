@@ -469,6 +469,7 @@ class MegatronActor:
         # currently, if the ckpt_dir is a cloud path, we download all the contents of the cloud path to a local directory
         # this should be improved to download only the relevant shards for this actor to load
         with io.local_read_dir(ckpt_dir, local_path=self.cfg.local_ckpt_dir, prefixes=prefixes) as read_dir:
+            dist.barrier()
             # Load the checkpoint in parallel.
             load_strategy = get_default_load_sharded_strategy(read_dir)
             load_strategy = FullyParallelLoadStrategyWrapper(load_strategy)

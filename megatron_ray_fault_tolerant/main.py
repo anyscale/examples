@@ -53,17 +53,17 @@ class MegatronConfig:
 
 @dataclass
 class Config:
-    model: str = "Qwen/Qwen3-0.6B"
-    num_nodes: int = 2
+    model: str = "Qwen/Qwen3-8B"
+    num_nodes: int = 4
     num_gpus_per_node: int = 4
     mini_batch_size: int = 16
     num_spare_gpus: int = 4
     micro_train_batch_size_per_gpu: int = 2
     megatron_config: MegatronConfig = field(default_factory=MegatronConfig)
     ckpt_dir: str = (
-        os.environ["ANYSCALE_ARTIFACT_STORAGE"] + "/megatron_fault_tolerance/ckpt4/"
+        os.environ["ANYSCALE_ARTIFACT_STORAGE"] + "/megatron_fault_tolerance/ckpt6/"
     )
-    local_ckpt_dir: str = "/tmp/megatron_fault_tolerance/ckpt4/" # used for storing checkpoint on local disk when downloading from cloud
+    local_ckpt_dir: str = "/tmp/megatron_fault_tolerance/ckpt6/" # used for storing checkpoint on local disk when downloading from cloud
     # algorithm config
     eps_clip_low: float = 0.2
     eps_clip_high: float = 0.2
