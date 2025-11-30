@@ -1,5 +1,4 @@
 FROM anyscale/ray:2.52.1-py312-cu128
-# FROM anyscale/ray:nightly-py311-cu128
 
 # By default, Anyscale swaps in an optimized version of Ray, so we need to avoid that
 # in order to use our specific patched version of Ray.
