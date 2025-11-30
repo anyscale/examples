@@ -11,7 +11,16 @@ anyscale login
 
 ## Submit the job
 
-Clone this repository and submit the job with
+Clone this repository
+
+Clone the example from GitHub.
+
+```bash
+git clone https://github.com/anyscale/examples.git
+cd examples/jax_training
+```
+
+Submit the job with
 
 ```bash
 anyscale job submit -f job.yaml
