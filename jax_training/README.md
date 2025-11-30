@@ -25,3 +25,7 @@ Submit the job with
 ```bash
 anyscale job submit -f job.yaml
 ```
+
+## Understanding the example
+
+- This example installs a nightly version of Ray in the [Dockerfile](https://github.com/anyscale/examples/blob/main/jax_training/Dockerfile) because Ray Train GPU support for Jax is very recent.
