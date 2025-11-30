@@ -16,6 +16,7 @@ import argparse
 import os
 import time
 
+import ray
 from helper import download_webdataset
 
 from nemo_curator.core.client import RayClient
@@ -199,9 +200,44 @@ def main(args: argparse.Namespace) -> None:
     ray_client.stop()
 
 
+def get_env_or_arg(env_var: str, arg_value, default=None):
+    """Get value from environment variable or command-line argument."""
+    env_value = os.environ.get(env_var)
+    if env_value is not None:
+        return env_value
+    if arg_value is not None:
+        return arg_value
+    return default
+
+
+def get_env_bool(env_var: str, arg_value: bool, default: bool = False) -> bool:
+    """Get boolean value from environment variable or command-line argument."""
+    env_value = os.environ.get(env_var)
+    if env_value is not None:
+        return env_value.lower() in ("true", "1", "yes")
+    return arg_value if arg_value is not None else default
+
+
+def get_env_int(env_var: str, arg_value: int, default: int) -> int:
+    """Get integer value from environment variable or command-line argument."""
+    env_value = os.environ.get(env_var)
+    if env_value is not None:
+        return int(env_value)
+    return arg_value if arg_value is not None else default
+
+
+def get_env_float(env_var: str, arg_value: float, default: float) -> float:
+    """Get float value from environment variable or command-line argument."""
+    env_value = os.environ.get(env_var)
+    if env_value is not None:
+        return float(env_value)
+    return arg_value if arg_value is not None else default
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Image curation pipeline with embedding generation and quality scoring"
+        description="Image curation pipeline with embedding generation and quality scoring. "
+                    "Arguments can also be set via environment variables (see job.yaml)."
     )
 
     # Dataset arguments
@@ -210,71 +246,76 @@ if __name__ == "__main__":
         type=str,
         required=False,
         default=None,
-        help="Path to input parquet file containing image URLs and metadata"
+        help="Path to input parquet file containing image URLs and metadata (env: INPUT_PARQUET)"
     )
     parser.add_argument(
         "--input-wds-dataset-dir",
         type=str,
-        required=True,
-        help="Directory to save the downloaded webdataset"
+        required=False,
+        default=None,
+        help="Directory to save the downloaded webdataset (env: INPUT_WDS_DIR)"
     )
     parser.add_argument(
         "--output-dataset-dir",
         type=str,
-        required=True,
-        help="Directory to save the resulting webdataset"
+        required=False,
+        default=None,
+        help="Directory to save the resulting webdataset (env: OUTPUT_DIR)"
     )
     parser.add_argument(
         "--embeddings-dir",
         type=str,
-        required=True,
-        help="Directory to save the embeddings"
+        required=False,
+        default=None,
+        help="Directory to save the embeddings (env: EMBEDDINGS_DIR)"
     )
     parser.add_argument(
         "--removal-parquets-dir",
         type=str,
-        required=True,
-        help="Directory to save the remove parquets"
+        required=False,
+        default=None,
+        help="Directory to save the remove parquets (env: REMOVAL_DIR)"
     )
     parser.add_argument(
         "--download-processes",
         type=int,
-        default=8,
-        help="Number of parallel processes for downloading images"
+        default=None,
+        help="Number of parallel processes for downloading images (env: DOWNLOAD_PROCESSES)"
     )
     parser.add_argument(
         "--entries-per-tar",
         type=int,
-        default=1000,
-        help="Number of entries per tar shard during download"
+        default=None,
+        help="Number of entries per tar shard during download (env: ENTRIES_PER_TAR)"
     )
     parser.add_argument(
         "--skip-download",
         action="store_true",
-        default=False,
-        help="Skip dataset download and use existing webdataset"
+        default=None,
+        help="Skip dataset download and use existing webdataset (env: SKIP_DOWNLOAD)"
     )
 
     # Image reader arguments
     parser.add_argument(
         "--tar-files-per-partition",
         type=int,
-        default=1,
-        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage"
+        default=None,
+        help="Number of tar files to process per partition (env: TAR_FILES_PER_PARTITION)"
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=100,
-        help="Number of images per ImageBatch for the reader stage"
+        default=None,
+        help="Number of images per ImageBatch for the reader stage (env: BATCH_SIZE)"
     )
 
     # General arguments
     parser.add_argument(
         "--model-dir",
         type=str,
-        required=True,
-        help="Path to model directory containing all model weights"
+        required=False,
+        default=None,
+        help="Path to model directory containing all model weights (env: MODEL_DIR)"
     )
     parser.add_argument(
         "--verbose",
@@ -287,15 +328,41 @@ if __name__ == "__main__":
     parser.add_argument(
         "--embedding-batch-size",
         type=int,
-        default=32,
-        help="Batch size for embedding generation"
+        default=None,
+        help="Batch size for embedding generation (env: EMBEDDING_BATCH_SIZE)"
     )
     parser.add_argument(
         "--embedding-gpus-per-worker",
         type=float,
-        default=0.25,
+        default=None,
         help="GPU allocation per worker for embedding generation"
     )
 
-    args = parser.parse_args()
+    cli_args = parser.parse_args()
+    
+    # Resolve arguments from environment variables or command-line args
+    args = argparse.Namespace(
+        input_parquet=get_env_or_arg("INPUT_PARQUET", cli_args.input_parquet),
+        input_wds_dataset_dir=get_env_or_arg("INPUT_WDS_DIR", cli_args.input_wds_dataset_dir),
+        output_dataset_dir=get_env_or_arg("OUTPUT_DIR", cli_args.output_dataset_dir),
+        embeddings_dir=get_env_or_arg("EMBEDDINGS_DIR", cli_args.embeddings_dir),
+        removal_parquets_dir=get_env_or_arg("REMOVAL_DIR", cli_args.removal_parquets_dir),
+        model_dir=get_env_or_arg("MODEL_DIR", cli_args.model_dir, "/home/ray/model_weights"),
+        download_processes=get_env_int("DOWNLOAD_PROCESSES", cli_args.download_processes, 8),
+        entries_per_tar=get_env_int("ENTRIES_PER_TAR", cli_args.entries_per_tar, 1000),
+        skip_download=get_env_bool("SKIP_DOWNLOAD", cli_args.skip_download, False),
+        tar_files_per_partition=get_env_int("TAR_FILES_PER_PARTITION", cli_args.tar_files_per_partition, 1),
+        batch_size=get_env_int("BATCH_SIZE", cli_args.batch_size, 100),
+        embedding_batch_size=get_env_int("EMBEDDING_BATCH_SIZE", cli_args.embedding_batch_size, 32),
+        embedding_gpus_per_worker=get_env_float("EMBEDDING_GPUS_PER_WORKER", cli_args.embedding_gpus_per_worker, 0.25),
+        verbose=cli_args.verbose,
+    )
+    
+    # Validate required arguments
+    required_args = ["input_wds_dataset_dir", "output_dataset_dir", "embeddings_dir", "removal_parquets_dir"]
+    missing = [arg for arg in required_args if getattr(args, arg) is None]
+    if missing:
+        parser.error(f"Missing required arguments: {', '.join(missing)}. "
+                     "Set them via command-line or environment variables.")
+    
     main(args)
