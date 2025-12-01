@@ -14,7 +14,7 @@ if not os.path.exists(path):
 
 ray.init()
 
-num_executors = 32
+num_executors = 128
 executor_memory = "3GB"
 
 spark = raydp.init_spark(

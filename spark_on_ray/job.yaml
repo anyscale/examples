@@ -20,8 +20,6 @@ compute_config:
   #   - instance_type: m5.2xlarge
   #     min_nodes: 0
   #     max_nodes: 16
-#  max_resources:
-#    CPU: 64
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
 # will be the working directory for the job. The files in the directory will be
