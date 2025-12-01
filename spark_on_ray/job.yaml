@@ -1,0 +1,37 @@
+# View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
+
+name: spark-on-ray
+
+# When empty, use the default image. This can be an Anyscale-provided base image
+# like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
+# that it meets certain specs), or you can build new images using the Anyscale
+# image builder at https://console.anyscale-staging.com/v2/container-images.
+# image_uri: anyscale/ray:2.49.1-slim-py312-cu128
+containerfile: ./Dockerfile
+
+# When empty, Anyscale will auto-select the instance types. You can also specify
+# minimum and maximum resources.
+compute_config:
+  auto_select_worker_config: true
+  # worker_nodes:
+  #   - instance_type: g5.12xlarge
+  #     min_nodes: 0
+  #     max_nodes: 16
+  #   - instance_type: m5.2xlarge
+  #     min_nodes: 0
+  #     max_nodes: 16
+
+# Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
+# will be the working directory for the job. The files in the directory will be
+# automatically uploaded to the job environment in Anyscale.
+working_dir: .
+
+# When empty, this uses the default Anyscale Cloud in your organization.
+cloud:
+
+# The script to run in your job. You can also do "uv run main.py" if you have a
+# pyproject.toml file in your working_dir.
+entrypoint: python main.py
+
+# If there is an error, do not retry.
+max_retries: 0
