@@ -6,8 +6,12 @@ name: nemo-curator-image-dedup
 # Build custom image with NeMo Curator CUDA dependencies
 containerfile: ./Dockerfile
 
-# Use named compute config with L40S GPU
-compute_config: "nemo-compute-config"
+# Compute configuration with L40S GPU for CUDA-accelerated image processing
+compute_config:
+  head_node:
+    instance_type: g6.8xlarge  # 1x L40S GPU, 32 vCPUs, 128GB RAM (AWS)
+    # For GCP, use: g2-standard-32 (1x L4 GPU)
+  worker_nodes: []  # Run entirely on head node
 
 # Working directory - upload only the example code, not data
 working_dir: .
@@ -51,9 +55,6 @@ env_vars:
   
   # Increase Ray API server limit for cosmos_xenna monitoring
   RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
-
-# When empty, uses the default Anyscale Cloud
-cloud:
 
 # The entrypoint script
 entrypoint: python image_dedup_example.py
