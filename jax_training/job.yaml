@@ -1,0 +1,27 @@
+name: jax-train
+
+containerfile: ./Dockerfile
+
+compute_config:
+  worker_nodes:
+    - instance_type: g4dn.12xlarge
+      min_nodes: 4
+      max_nodes: 4
+
+working_dir: .
+
+# When empty, this uses the default Anyscale Cloud in your organization.
+cloud:
+
+# The script to run in your job. You can also do "uv run main.py" if you have a
+# pyproject.toml file in your working_dir.
+entrypoint: python train.py
+
+env_vars:
+  RAY_TRAIN_V2_ENABLED: "1"
+
+# If there is an error, do not retry.
+max_retries: 0
+
+# Kill the job after 2 hours to control costs.
+timeout_s: 7200
