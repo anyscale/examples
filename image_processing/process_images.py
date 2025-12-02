@@ -9,8 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-num_images_to_process = 10**6
-num_gpus = 64
+num_images_to_process = 10**7  # Process 10 million images.
+num_gpus = 64  # This number needs to match the GPU allocation in the job.yaml file
 
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 output_path = f"/mnt/shared_storage/process_images_output/{timestamp}"
@@ -54,7 +54,9 @@ def image_download(batch: Dict[str, List]) -> Dict[str, List]:
 
     # Use ThreadPoolExecutor for parallel downloads
     with ThreadPoolExecutor(max_workers=50) as executor:
-        results = list(executor.map(lambda url: download_single_image(url, session), urls))
+        results = list(
+            executor.map(lambda url: download_single_image(url, session), urls)
+        )
 
     batch["bytes"] = [r["content"] for r in results]
     return batch
@@ -156,7 +158,9 @@ dataset = (
     )
     .drop_columns(["url"])
     .map(process_single_image)
-    .filter(lambda row: row["bytes"] is not None)  # Filter out failed downloads/processing
+    .filter(
+        lambda row: row["bytes"] is not None
+    )  # Filter out failed downloads/processing
 )
 
 dataset = vision_processor(dataset)

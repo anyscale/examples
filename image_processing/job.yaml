@@ -9,16 +9,15 @@ name: process-images
 containerfile: ./Dockerfile
 
 compute_config:
-  auto_select_worker_config: true
-  # worker_nodes:
-  #   - instance_type: g5.12xlarge
-  #     min_nodes: 0
-  #     max_nodes: 16
-  #   - instance_type: m5.2xlarge
-  #     min_nodes: 0
-  #     max_nodes: 16
+  # auto_select_worker_config: true
+  worker_nodes:
+    # This example uses A10G GPUs for the VLM model inference, if you need to
+    # change the instance type, make sure the vllm config is updated accordingly.
+    - instance_type: g5.12xlarge
+      min_nodes: 0
+      max_nodes: 16
   max_resources:
-    CPU: 1600
+    CPU: 768
     GPU: 64
 
 # Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
