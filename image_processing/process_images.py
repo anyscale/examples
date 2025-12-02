@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-num_images_to_process = 10**7 # This example processes 10 million images, remove this parameter to process the entire dataset
+num_images_to_process = 10**7  # Process 10 million images.
 num_gpus = 64  # This number needs to match the GPU allocation in the job.yaml file
 
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
