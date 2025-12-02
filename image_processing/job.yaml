@@ -11,7 +11,9 @@ containerfile: ./Dockerfile
 compute_config:
   # auto_select_worker_config: true
   worker_nodes:
-    - instance_type: g5.12xlarge # Currently we are using A10G GPUs for the VLM model inference, if you need to change the instance type, make sure the vllm config is updated accordingly
+    # This example uses A10G GPUs for the VLM model inference, if you need to
+    # change the instance type, make sure the vllm config is updated accordingly.
+    - instance_type: g5.12xlarge
       min_nodes: 0
       max_nodes: 16
   max_resources:
