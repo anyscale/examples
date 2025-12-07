@@ -74,13 +74,6 @@ def main():
     config = Config()
     # create placement group including spare gpus
     # need to set these env vars to avoid nccl error on nodes not supporting p2p
-    runtime_env = {
-        "env_vars": {
-            "NCCL_P2P_DISABLE": "1",
-            "NCCL_SHM_DISABLE": "1",
-        }
-    }
-    ray.init(runtime_env=runtime_env)
 
     pg = placement_group(
         [{"GPU": 1, "CPU": 12}] * config.num_nodes * config.num_gpus_per_node
@@ -132,18 +125,18 @@ def main():
     print("Saving a copy of the model and optimizer state to cpu memory...")
     ray.get(actor_group.async_run_ray_method("pass_through", "offload_to_cpu"))
     ray.get(actor_group.async_run_ray_method("pass_through", "backload_to_gpu"))
-    
+
     # TODO: run another training batch here and save results but don't save checkpoint
     # train on one batch
     batch = get_test_training_batch(config.model, batch_size=32)
-    step_2_metrics = ray.get(actor_group.async_run_ray_method("mesh", "ppo_train", batch))
-
+    step_2_metrics = ray.get(
+        actor_group.async_run_ray_method("mesh", "ppo_train", batch)
+    )
 
     # randomly kill an actor to simulate fault tolerance scenario
     # TODO: go deeper into the actor code and throw an exception on a given node and catch it here
     # try to potentially integrate nvidia-fault-tolerance extension here?
     with Timer("Simulating failure and recovery with hot spares"):
-        
         with Timer("Killing actors to simulate failure"):
             actor_id = random.randint(0, len(actor_group.actor_infos) - 1)
             # get the whole dp group associated with the failed actor
@@ -196,6 +189,7 @@ def main():
                 )
             )
 
+
     # TODO: check that results here are the same as before the failure when resuming from checkpoint
     # Test that training still works after recovery
     print("Testing training after recovery...")
@@ -207,18 +201,11 @@ def main():
     )
     print("Recovery successful! Training works with remaining actors.")
 
+
 def baseline():
     config = Config()
     # create placement group including spare gpus
 
-    # need to set these env vars to avoid nccl error on nodes not supporting p2p
-    runtime_env = {
-        "env_vars": {
-            "NCCL_P2P_DISABLE": "1",
-            "NCCL_SHM_DISABLE": "1",
-        }
-    }
-    ray.init(runtime_env=runtime_env)
     pg = placement_group(
         [{"GPU": 1, "CPU": 1}] * config.num_nodes * config.num_gpus_per_node,
         strategy="PACK",
@@ -226,6 +213,29 @@ def baseline():
     ray.get(pg.ready(), timeout=1200)
     # this is needed because placement group gpu bundle order is not deterministic: https://github.com/ray-project/ray/issues/51117
     reordered_bundle_indices = get_reordered_bundle_indices(pg)
+    # Run diagnostics after recovery to validate the recovered system
+    # This spawns independent DiagnosticActors on the spare GPU bundles
+    # to verify GPU health and communication without interfering with training actors
+    with Timer("Running post-recovery diagnostics..."):
+        from diagnostics.runner import DiagnosticRunner
+
+        runner = DiagnosticRunner()
+        # Use the spare GPU bundles that are now available after recovery
+        # (the backup actors were moved to replace dead actors)
+        spare_bundle_indices = reordered_bundle_indices[-config.num_spare_gpus:]
+        diag_result = runner.run_on_placement_group(pg, spare_bundle_indices)
+
+        print(f"Diagnostic result: {diag_result.summary()}")
+        if diag_result.is_graceful_stop:
+            print("All diagnostic tests passed - system is healthy after recovery")
+        else:
+            print(
+                f"Issues detected after recovery - stop reason: {diag_result.stop_reason.value}"
+            )
+            if diag_result.faulty_gpus:
+                print(f"Faulty GPUs identified: {diag_result.faulty_gpus}")
+            if diag_result.faulty_nodes:
+                print(f"Faulty nodes identified: {diag_result.faulty_nodes}")
 
     actor_group = MegatronActorGroup(
         cfg=config,
@@ -250,7 +260,7 @@ def baseline():
     # simulate full teardown and restart
     with Timer("Full teardown and restart"):
         ray.shutdown()
-        ray.init(runtime_env=runtime_env)
+        ray.init()
         pg = placement_group(
             [{"GPU": 1, "CPU": 1}] * config.num_nodes * config.num_gpus_per_node,
             strategy="PACK",

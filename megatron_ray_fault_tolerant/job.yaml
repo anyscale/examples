@@ -39,7 +39,7 @@ env_vars:
 
 # The script to run in your job. You can also do "uv run main.py" if you have a
 # pyproject.toml file in your working_dir.
-entrypoint: uv run --isolated main.py
+entrypoint: uv run --isolated main.py --mode baseline
 
 # If there is an error, do not retry.
 max_retries: 0
