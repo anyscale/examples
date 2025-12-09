@@ -60,15 +60,6 @@ env_vars:
   
   # Increase Ray API server limit for cosmos_xenna monitoring
   RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
-  
-  # Required by cosmos_xenna (NeMo Curator backend) - must be set before Ray starts
-  # This allows cosmos_xenna to manage GPU allocation instead of Ray
-  RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "0"
-  
-  # Expected cluster resources (head + 1 worker)
-  # With 1 head (32 CPUs, 1 GPU) + 1 worker (32 CPUs, 1 GPU) = 64 CPUs, 2 GPUs
-  EXPECTED_CPUS: "60"
-  EXPECTED_GPUS: "2"
 
 # The entrypoint script
 entrypoint: python image_dedup_example.py

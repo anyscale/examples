@@ -19,62 +19,6 @@ import time
 import ray
 from helper import download_webdataset
 
-
-def wait_for_workers(min_cpus: int = 1, min_gpus: int = 1, timeout: int = 600, poll_interval: int = 10, stability_checks: int = 3):
-    """Wait for Ray cluster to have minimum required resources with stability verification.
-    
-    Args:
-        min_cpus: Minimum CPUs required
-        min_gpus: Minimum GPUs required  
-        timeout: Maximum seconds to wait
-        poll_interval: Seconds between polls
-        stability_checks: Number of consecutive successful checks required
-    """
-    # Connect to Ray cluster
-    if not ray.is_initialized():
-        ray.init(address="auto", ignore_reinit_error=True)
-    
-    print(f"Waiting for cluster resources (min {min_cpus} CPUs, {min_gpus} GPUs)...")
-    start_time = time.time()
-    consecutive_success = 0
-    
-    while True:
-        elapsed = time.time() - start_time
-        if elapsed > timeout:
-            raise TimeoutError(f"Cluster did not reach required resources within {timeout}s")
-        
-        try:
-            resources = ray.cluster_resources()
-            cpus = resources.get("CPU", 0)
-            gpus = resources.get("GPU", 0)
-            
-            print(f"  [{elapsed:.0f}s] Available: {cpus:.0f} CPUs, {gpus:.0f} GPUs (check {consecutive_success + 1}/{stability_checks})")
-            
-            if cpus >= min_cpus and gpus >= min_gpus:
-                consecutive_success += 1
-                if consecutive_success >= stability_checks:
-                    print(f"✓ Cluster stable with {cpus:.0f} CPUs and {gpus:.0f} GPUs")
-                    # Log full resources for debugging
-                    print(f"  Full resources: {resources}")
-                    # Add delay to ensure Ray GCS state is fully propagated
-                    print("  Waiting 5s for resource state to stabilize...")
-                    time.sleep(5)
-                    # Verify one more time
-                    final_resources = ray.cluster_resources()
-                    if "CPU" not in final_resources:
-                        print(f"  WARNING: CPU key missing after delay! Resources: {final_resources}")
-                        consecutive_success = 0
-                        continue
-                    print(f"  Final verification: {final_resources.get('CPU', 0):.0f} CPUs, {final_resources.get('GPU', 0):.0f} GPUs")
-                    return
-            else:
-                consecutive_success = 0
-        except Exception as e:
-            print(f"  [{elapsed:.0f}s] Waiting for cluster... ({e})")
-            consecutive_success = 0
-        
-        time.sleep(poll_interval)
-
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
@@ -183,12 +127,6 @@ def main(args: argparse.Namespace) -> None:
     ray_client = RayClient()
     ray_client.start()
 
-    # Wait for all cluster nodes to be ready (head + workers)
-    # Read expected resources from environment or use defaults
-    expected_cpus = int(os.environ.get("EXPECTED_CPUS", "4"))
-    expected_gpus = int(os.environ.get("EXPECTED_GPUS", "1"))
-    wait_for_workers(min_cpus=expected_cpus, min_gpus=expected_gpus, timeout=600, poll_interval=5, stability_checks=3)
-
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
@@ -226,45 +164,6 @@ def main(args: argparse.Namespace) -> None:
     # Step 2: Create and run curation pipelines
     # Step 2.1: Create image embedding pipeline
     print("Step 2.1: Running image embedding pipeline...")
-    
-    # Re-check cluster resources before running GPU pipeline
-    # This ensures workers are still connected after the download phase
-    # Use aggressive checking: 1s intervals, 5 consecutive checks required
-    print("Verifying cluster resources before GPU pipeline...")
-    wait_for_workers(min_cpus=expected_cpus, min_gpus=expected_gpus, timeout=300, poll_interval=1, stability_checks=5)
-    
-    # Extra verification: Query ray.nodes() to ensure node info is available
-    print("Verifying Ray nodes...")
-    nodes = ray.nodes()
-    print(f"  Found {len(nodes)} Ray nodes:")
-    for node in nodes:
-        node_resources = node.get("Resources", {})
-        alive = node.get("Alive", False)
-        print(f"    - Node {node.get('NodeID', 'unknown')[:8]}: Alive={alive}, CPUs={node_resources.get('CPU', 0)}, GPUs={node_resources.get('GPU', 0)}")
-    
-    # Check both cluster_resources and available_resources
-    # cosmos_xenna might use available_resources which could be different
-    print("\nResource comparison:")
-    cluster_res = ray.cluster_resources()
-    avail_res = ray.available_resources()
-    print(f"  cluster_resources(): CPU={cluster_res.get('CPU', 'MISSING')}, GPU={cluster_res.get('GPU', 'MISSING')}")
-    print(f"  available_resources(): CPU={avail_res.get('CPU', 'MISSING')}, GPU={avail_res.get('GPU', 'MISSING')}")
-    
-    # Wait for resources to stabilize before cosmos_xenna runs
-    print("\nWaiting 10s for Ray state to fully stabilize before cosmos_xenna...")
-    time.sleep(10)
-    
-    # Final check right before pipeline
-    print("Final resource check:")
-    cluster_res = ray.cluster_resources()
-    avail_res = ray.available_resources()
-    print(f"  cluster_resources(): CPU={cluster_res.get('CPU', 'MISSING')}, GPU={cluster_res.get('GPU', 'MISSING')}")
-    print(f"  available_resources(): CPU={avail_res.get('CPU', 'MISSING')}, GPU={avail_res.get('GPU', 'MISSING')}")
-    
-    if 'CPU' not in cluster_res or 'GPU' not in cluster_res:
-        print("WARNING: cluster_resources missing CPU or GPU key!")
-        print(f"  Full cluster_resources: {cluster_res}")
-    
     start_time = time.time()
     pipeline = create_image_embedding_pipeline(args)
     print(pipeline.describe())
