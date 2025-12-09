@@ -6,12 +6,18 @@ name: nemo-curator-image-dedup
 # Build custom image with NeMo Curator CUDA dependencies
 containerfile: ./Dockerfile
 
-# Compute configuration with L40S GPU for CUDA-accelerated image processing
+# Compute configuration with L4 GPU for CUDA-accelerated image processing
+# Head + worker nodes for distributed processing
 compute_config:
   head_node:
-    instance_type: g6.8xlarge  # 1x L40S GPU, 32 vCPUs, 128GB RAM (AWS)
-    # For GCP, use: g2-standard-32 (1x L4 GPU)
-  worker_nodes: []  # Run entirely on head node
+    instance_type: g6.8xlarge  # 1x L4 GPU, 32 vCPUs, 128GB RAM
+    # Ensure Ray reports CPU resources on the head node for cosmos_xenna
+    resources:
+      CPU: 32
+  worker_nodes:
+    - instance_type: g6.8xlarge  # 1x L4 GPU per worker
+      min_nodes: 2
+      max_nodes: 2
 
 # Working directory - upload only the example code, not data
 working_dir: .
@@ -46,15 +52,23 @@ env_vars:
   DOWNLOAD_PROCESSES: "8"
   ENTRIES_PER_TAR: "1000"
   
-  # Set to "true" to skip downloading (use existing WebDataset)
-  # WebDataset already exists from previous run
-  SKIP_DOWNLOAD: "false"
+
+  SKIP_DOWNLOAD: "false" # Always keep false
   
   # Ray memory settings to avoid OOM
   RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
   
   # Increase Ray API server limit for cosmos_xenna monitoring
   RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
+  
+  # Required by cosmos_xenna (NeMo Curator backend) - must be set before Ray starts
+  # This allows cosmos_xenna to manage GPU allocation instead of Ray
+  RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "0"
+  
+  # Expected cluster resources (head + 1 worker)
+  # With 1 head (32 CPUs, 1 GPU) + 1 worker (32 CPUs, 1 GPU) = 64 CPUs, 2 GPUs
+  EXPECTED_CPUS: "60"
+  EXPECTED_GPUS: "2"
 
 # The entrypoint script
 entrypoint: python image_dedup_example.py
