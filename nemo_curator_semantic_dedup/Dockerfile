@@ -42,10 +42,6 @@ snapshot_download('openai/clip-vit-large-patch14', local_dir=model_dir)"
 # Set environment variable for model directory
 ENV MODEL_DIR=/home/ray/model_weights
 
-# Required by cosmos_xenna (NeMo Curator backend) - must be set before Ray cluster starts
-# This allows cosmos_xenna to manage GPU allocation instead of Ray's default CUDA_VISIBLE_DEVICES handling
-ENV RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
-
 # Download and prepare the example dataset from HuggingFace
 # Downloads MS COCO parquet, deduplicates URLs, and truncates to 100k rows
 RUN mkdir -p /home/ray/data && \
