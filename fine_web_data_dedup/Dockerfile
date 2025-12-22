@@ -1,4 +1,4 @@
-FROM anyscale/ray:2.52.0-slim-py312-cu128
+FROM anyscale/ray:2.52.1-slim-py312-cu128
 
 # Install system dependencies for kenlm
 RUN sudo apt-get update && \
@@ -20,4 +20,5 @@ RUN uv pip install --system \
     "py-data-juicer[nlp]" \
     gcsfs \
     s3fs \
-    tiktoken
+    tiktoken \
+    s3fs
