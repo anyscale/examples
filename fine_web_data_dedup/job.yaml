@@ -5,13 +5,13 @@
 
 name: process-fineweb-data
 
-cloud:
+cloud: anyscale_gcp_public_default_cloud_us_west_1
 
 containerfile: ./Dockerfile
 
 compute_config:
   worker_nodes:
-    - instance_type: n2-highmem-128
+    - instance_type: n2-highmem-64
       min_nodes: 20
       max_nodes: 20
 
