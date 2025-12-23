@@ -17,7 +17,7 @@ ENV UV_SYSTEM_PYTHON=1
 
 # Install dependencies directly (Anyscale doesn't allow COPY from local directories)
 RUN uv pip install --system \
-    "py-data-juicer[nlp]" \
+    "py-data-juicer[nlp] @ git+https://github.com/xyuzh/data-juicer.git@feat/ray-minhash-memory-reservation" \
     gcsfs \
     s3fs \
     tiktoken \
