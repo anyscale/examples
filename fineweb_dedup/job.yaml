@@ -1,26 +1,19 @@
-# FineWeb-edu Data Processing Job (using local data-juicer source)
-#
-# Run from repo root:
-#   anyscale job submit -f job.yaml
+# View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
 
-name: process-fineweb-data
-
-cloud: anyscale_gcp_public_default_cloud_us_west_1
+name: process-fineweb
 
 containerfile: ./Dockerfile
 
 compute_config:
   worker_nodes:
-    - instance_type: n2-highmem-64
+    - instance_type: r7i.16xlarge  # r7i.16xlarge on AWS, n2-highmem-64 on GCP
       min_nodes: 20
       max_nodes: 20
 
-
-# Upload entire data-juicer repo
 working_dir: .
 
-# Run main.py directly - data-juicer is pre-installed in the container image
-# Local code changes are available via working_dir upload
+cloud:
+
 entrypoint: python main.py
 
 max_retries: 0
