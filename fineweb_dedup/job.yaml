@@ -1,0 +1,19 @@
+# View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
+
+name: process-fineweb
+
+containerfile: ./Dockerfile
+
+compute_config:
+  worker_nodes:
+    - instance_type: r7i.16xlarge  # r7i.16xlarge on AWS, n2-highmem-64 on GCP
+      min_nodes: 20
+      max_nodes: 20
+
+working_dir: .
+
+cloud:
+
+entrypoint: python main.py
+
+max_retries: 0

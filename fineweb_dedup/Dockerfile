@@ -10,10 +10,7 @@ RUN sudo apt-get update && \
     && sudo rm -rf /var/lib/apt/lists/*
 
 # Install uv
-RUN pip install --no-cache-dir uv
-
-# Set UV to use system Python (no venv required)
-ENV UV_SYSTEM_PYTHON=1
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install dependencies directly (Anyscale doesn't allow COPY from local directories)
 RUN uv pip install --system \
