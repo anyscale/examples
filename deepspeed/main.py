@@ -199,7 +199,7 @@ def training_loop(cfg: dict):
     )
 
     # Optional debug: print DS micro-batch settings once
-    if train.get_context().get_world_rank() == 0:
+    if ray.train.get_context().get_world_rank() == 0:
         try:
             plug = accelerator.state.deepspeed_plugin
             ds_cfg = plug.hf_ds_config.config if hasattr(plug, "hf_ds_config") else plug.deepspeed_config
@@ -214,7 +214,7 @@ def training_loop(cfg: dict):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Ray Data iterator (collate defined in Cell 7)
-    train_ds = train.get_dataset_shard("train")
+    train_ds = ray.train.get_dataset_shard("train")
     collate = make_collate_fn(tokenizer, cfg["max_length"], accelerator.device)
     data_iter = train_ds.iter_torch_batches(
         batch_size=int(cfg["per_device_batch_size"]),
@@ -317,7 +317,7 @@ def training_loop(cfg: dict):
                 if accelerator.is_main_process:
                     prog.set_description(f"epoch {epoch} loss {running / (prog.n + 1):.4f}")
 
-                train.report({"epoch": epoch, "loss": float(loss.item())})
+                ray.train.report({"epoch": epoch, "loss": float(loss.item())})
 
         # Save tiny checkpoint (tokenizer + rm_head) each epoch
         with tempfile.TemporaryDirectory() as tmp:
@@ -326,7 +326,7 @@ def training_loop(cfg: dict):
                 torch.save(rm.module.rm_head.state_dict(), os.path.join(tmp, "rm_head.pt"))
             accelerator.wait_for_everyone()
             ckpt = Checkpoint.from_directory(tmp) if accelerator.is_main_process else None
-            train.report({"epoch": epoch, "avg_loss": running / max(1, steps_per_epoch)}, checkpoint=ckpt)
+            ray.train.report({"epoch": epoch, "avg_loss": running / max(1, steps_per_epoch)}, checkpoint=ckpt)
 
 
 
