@@ -29,8 +29,6 @@ LIMIT_ROWS = 4000               # limit HF rows for a fast run; set 0 for full d
 # ---- Storage on Anyscale
 STORAGE_PATH = "/mnt/cluster_storage/lmarena_qwen32b_rm"
 
-DS_CONFIG_PATH = "./deepspeed_zero3.json"
-
 ds_cfg = {
     "train_micro_batch_size_per_gpu": PER_DEVICE_BATCH_SIZE,
     "gradient_accumulation_steps": GRAD_ACCUM_STEPS,
@@ -56,10 +54,6 @@ ds_cfg = {
     "fp16": {"enabled": False},
     "gradient_clipping": 1.0
 }
-with open(DS_CONFIG_PATH, "w") as f:
-    json.dump(ds_cfg, f, indent=2)
-
-
 
 
 def make_collate_fn(tokenizer, max_len, device):
@@ -343,7 +337,7 @@ num_samples, train_ds
 
 
 
-ds_plugin = DeepSpeedPlugin(hf_ds_config=DS_CONFIG_PATH)
+ds_plugin = DeepSpeedPlugin(hf_ds_config=ds_cfg)
 world_size = NUM_WORKERS
 
 train_loop_cfg = {
