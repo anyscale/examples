@@ -11,11 +11,9 @@ from accelerate import Accelerator, DeepSpeedPlugin
 from accelerate.utils import set_seed
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from ray import train
 from ray.train import Checkpoint, RunConfig, ScalingConfig, DataConfig
 from ray.train.torch import TorchTrainer
 
-# ---- Required by the customer (no exceptions)
 MODEL_ID = "Qwen/Qwen2.5-32B-Instruct"
 HF_DATASET_ID = "evanfrick/human-pref-debug-dataset"
 
@@ -65,8 +63,6 @@ with open(DS_CONFIG_PATH, "w") as f:
 
 
 def make_collate_fn(tokenizer, max_len, device):
-    import numpy as np, random, torch
-
     def _to_py(x):
         if isinstance(x, np.ndarray):
             try:
@@ -192,15 +188,6 @@ def training_loop(cfg: dict):
     - Uses DeepSpeed via Accelerate (ZeRO-3), with Ray Data iterator
     - Computes Bradley–Terry loss on (chosen vs. rejected) pairs
     """
-
-    import math, os, tempfile
-    import torch
-    import tqdm
-    from accelerate import Accelerator
-    from accelerate.utils import set_seed
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    from ray import train
-    from ray.train import Checkpoint
 
     # --- Setup & config ---
     set_seed(int(cfg["seed"]))
@@ -384,4 +371,4 @@ trainer = TorchTrainer(
 )
 
 result = trainer.fit()
-result
+print(result)

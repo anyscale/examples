@@ -8,12 +8,12 @@ compute_config:
 
   worker_nodes:
     - instance_type: m5d.2xlarge
-      min_nodes: 0
-      max_nodes: 10
+      min_nodes: 1
+      max_nodes: 1
 
     - instance_type: g6e.24xlarge
-      min_nodes: 0
-      max_nodes: 10
+      min_nodes: 2
+      max_nodes: 2
 
 working_dir: .
 
