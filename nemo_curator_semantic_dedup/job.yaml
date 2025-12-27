@@ -19,8 +19,8 @@ compute_config:
       min_nodes: 2
       max_nodes: 2
 
-# Working directory - upload only the example code, not data
-working_dir: .
+# Working directory - use the repo root (absolute) so Curator/ is included
+working_dir: /home/ray/default
 
 # Environment variables for job configuration
 # Override these when submitting to use your own data paths
@@ -45,24 +45,31 @@ env_vars:
   # Model weights directory (pre-downloaded in Docker image)
   MODEL_DIR: "/home/ray/model_weights"
   
-  # Processing settings
-  BATCH_SIZE: "32"
-  EMBEDDING_BATCH_SIZE: "32"
-  TAR_FILES_PER_PARTITION: "10"
+  # Processing settings (reduced to prevent OOM)
+  BATCH_SIZE: "4"
+  EMBEDDING_BATCH_SIZE: "8"
+  TAR_FILES_PER_PARTITION: "1"
   DOWNLOAD_PROCESSES: "8"
-  ENTRIES_PER_TAR: "1000"
+  ENTRIES_PER_TAR: "500"
   
 
   SKIP_DOWNLOAD: "false" # Always keep false
   
   # Ray memory settings to avoid OOM
-  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.5"
+  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.3"
+  # Spill objects to disk when memory is low instead of crashing
+  RAY_OBJECT_SPILLING_CONFIG: '{"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}'
+  # Kill tasks that use too much memory before they OOM the node
+  RAY_memory_monitor_refresh_ms: "100"
+  # Force garbage collection more frequently
+  RAY_ENABLE_RECORD_ACTOR_TASK_LOGGING: "1"
   
   # Increase Ray API server limit for cosmos_xenna monitoring
   RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
 
 # The entrypoint script
-entrypoint: python image_dedup_example.py
+# Install local Curator (uploaded via working_dir) so image uses your current code
+entrypoint: python examples/nemo_curator_semantic_dedup/image_dedup_example.py
 
 # Don't retry on failure - easier to debug
 max_retries: 0
