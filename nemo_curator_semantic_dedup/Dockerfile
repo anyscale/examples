@@ -2,13 +2,17 @@
 # Uses CUDA 12.8 for GPU-accelerated processing
 FROM anyscale/ray:2.52.0-slim-py312-cu128
 
+# Cache buster - change this to force rebuild
+ARG CACHE_BUST=2025-12-27-v5
+
 # Install system dependencies
 RUN sudo apt-get update && \
     sudo apt-get install -y --no-install-recommends \
         build-essential \
         unzip \
         wget \
-        curl && \
+        curl \
+        git && \
     sudo apt-get clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
@@ -16,8 +20,33 @@ RUN sudo apt-get update && \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install Python dependencies
-# NeMo Curator with CUDA 12 support for image processing
-RUN uv pip install --system "nemo-curator[image_cuda12]"
+# Use uv pip install --system to install into the base anaconda environment
+# so all Ray workers (not just the driver) have these packages
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# IMPORTANT: Uninstall any pre-existing RAPIDS/cuML packages from the base image
+# The base image may have incompatible versions that conflict with scikit-learn
+RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 raft-dask-cu12 rmm-cu12 || true && \
+    echo "Cleaned up pre-existing RAPIDS packages"
+
+# Upgrade scikit-learn FIRST in the system environment for cuML compatibility
+# cuML 25.6.* requires sklearn with _get_default_requests (added in sklearn 1.5)
+# This MUST be in the base anaconda env so workers have it
+RUN uv pip install --system "scikit-learn>=1.5,<1.6" && \
+    python -c "import sklearn; print(f'scikit-learn version: {sklearn.__version__}')"
+
+# Clone NeMo-Curator from fork and install in editable mode
+# This ensures all Ray workers have the same code with your local edits
+ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
+ARG CURATOR_REF=avi-test
+# ARG CURATOR_REF=main
+RUN git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
+    uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
+
+# Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
+# cuML 25.6.* needs sklearn >= 1.5 (has _get_default_requests)
+RUN uv pip install --system "scikit-learn>=1.5,<1.6" && \
+    python -c "import sklearn; print(f'Final scikit-learn version: {sklearn.__version__}')"
 
 # Additional dependencies for image downloading and processing
 RUN uv pip install --system \
