@@ -26,8 +26,9 @@ working_dir: /home/ray/default
 # Override these when submitting to use your own data paths
 env_vars:
   # Input parquet file with image URLs (TEXT and URL columns)
-  # This file is copied into the Docker image during build
-  INPUT_PARQUET: "/home/ray/data/truncated_100k_mscoco.parquet"
+  # LAION dataset (relative to working_dir)
+  INPUT_PARQUET: "examples/nemo_curator_semantic_dedup/laion_meta/laion_subset_10m.parquet"
+  MAX_ENTRIES: "10000"  # Limit for testing
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
@@ -63,14 +64,14 @@ env_vars:
   RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
   
   # NCCL settings for multi-GPU K-means across nodes
-  # Enable debug info to diagnose NCCL communication failures
-  NCCL_DEBUG: "INFO"
-  # Use the network interface that can reach other nodes
+  NCCL_DEBUG: "WARN"
   NCCL_SOCKET_IFNAME: "ens,eth"
-  # Increase timeout for initialization
-  NCCL_TIMEOUT: "600"
-  # Force socket-based communication (more compatible than IB)
-  NCCL_NET: "Socket"
+  NCCL_TIMEOUT: "1800"
+  # Disable features that don't work well across nodes on g5 instances
+  NCCL_P2P_DISABLE: "1"      # Disable GPU peer-to-peer (forces host memory path)
+  NCCL_SHM_DISABLE: "1"      # Disable shared memory (forces network for all)
+  NCCL_IB_DISABLE: "1"       # Disable InfiniBand (not available on g5)
+  NCCL_ASYNC_ERROR_HANDLING: "1"  # Better error recovery
   
   # Ray memory settings to avoid OOM
   RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.3"
