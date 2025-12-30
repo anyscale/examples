@@ -19,6 +19,8 @@ import time
 import ray
 from helper import download_webdataset
 
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
@@ -158,20 +160,28 @@ def main(args: argparse.Namespace) -> None:
         print("\n" + "=" * 50 + "\n")
 
     # Step 2: Create and run curation pipelines
+    # Use experimental executors with ignore_head_node=True to avoid scheduling on head node
+    # This allows using a CPU-only head node while GPU tasks run on workers
+    streaming_executor = RayDataExecutor(ignore_head_node=True)
+    batch_executor = RayActorPoolExecutor(ignore_head_node=True)
+
     # Step 2.1: Create image embedding pipeline
     print("Step 2.1: Running image embedding pipeline...")
     start_time = time.time()
     pipeline = create_image_embedding_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    pipeline.run(executor=streaming_executor)
 
-    # Step 2.2: Create image deduplication pipeline (pairwise executor is XennaExecutor by default)
+    # Step 2.2: Create image deduplication pipeline (semantic dedup workflow)
     print("Step 2.2: Running image deduplication pipeline...")
     start_time = time.time()
-    pipeline = create_embedding_deduplication_workflow(args)
+    workflow = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    workflow.run(
+        kmeans_executor=RayActorPoolExecutor(ignore_head_node=True),
+        pairwise_executor=RayActorPoolExecutor(ignore_head_node=True),
+    )
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
@@ -179,7 +189,7 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_deduplication_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    pipeline.run(executor=streaming_executor)
 
     end_time = time.time()
 
