@@ -148,6 +148,7 @@ def main(args: argparse.Namespace) -> None:
             output_dir=args.input_wds_dataset_dir,
             num_processes=args.download_processes,
             entries_per_tar=args.entries_per_tar,
+            max_entries=args.max_entries,
         )
 
         download_time = time.time() - download_start
@@ -300,6 +301,12 @@ if __name__ == "__main__":
         default=None,
         help="Skip dataset download and use existing webdataset (env: SKIP_DOWNLOAD)"
     )
+    parser.add_argument(
+        "--max-entries",
+        type=int,
+        default=None,
+        help="Maximum entries to download for testing (env: MAX_ENTRIES). None = no limit."
+    )
 
     # Image reader arguments
     parser.add_argument(
@@ -356,6 +363,7 @@ if __name__ == "__main__":
         model_dir=get_env_or_arg("MODEL_DIR", cli_args.model_dir, "/home/ray/model_weights"),
         download_processes=get_env_int("DOWNLOAD_PROCESSES", cli_args.download_processes, 8),
         entries_per_tar=get_env_int("ENTRIES_PER_TAR", cli_args.entries_per_tar, 1000),
+        max_entries=int(get_env_or_arg("MAX_ENTRIES", cli_args.max_entries)) if get_env_or_arg("MAX_ENTRIES", cli_args.max_entries) else None,
         skip_download=get_env_bool("SKIP_DOWNLOAD", cli_args.skip_download, False),
         tar_files_per_partition=get_env_int("TAR_FILES_PER_PARTITION", cli_args.tar_files_per_partition, 1),
         batch_size=get_env_int("BATCH_SIZE", cli_args.batch_size, 100),
