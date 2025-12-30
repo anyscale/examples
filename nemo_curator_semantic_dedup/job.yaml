@@ -7,15 +7,15 @@ name: nemo-curator-image-dedup
 containerfile: ./Dockerfile
 
 # Compute configuration with L4 GPU for CUDA-accelerated image processing
-# Head + worker nodes for distributed processing
+# CPU-only head node + GPU worker nodes (using ignore_head_node=True in executors)
 compute_config:
   head_node:
-    instance_type: g6.8xlarge  # 1x L4 GPU, 32 vCPUs, 128GB RAM
-    # Ensure Ray reports CPU resources on the head node for cosmos_xenna
+    instance_type: m6i.2xlarge  # CPU-only, 8 vCPUs, 32GB RAM
+    # No tasks scheduled here - using RayDataExecutor/RayActorPoolExecutor with ignore_head_node=True
     resources:
-      CPU: 32
+      CPU: 0  # Prevent any task scheduling on head node
   worker_nodes:
-    - instance_type: g6.8xlarge  # 1x L4 GPU per worker
+    - instance_type: g5.12xlarge  # 4x A10G GPUs per worker, 48 vCPUs, 192GB RAM
       min_nodes: 2
       max_nodes: 2
 
@@ -52,8 +52,25 @@ env_vars:
   DOWNLOAD_PROCESSES: "8"
   ENTRIES_PER_TAR: "500"
   
+  # GPU allocation per worker - 2.0 = one worker per 2 GPUs (very strict limit)
+  # This prevents OOM even with Ray Data pipelining overlap between stages
+  EMBEDDING_GPUS_PER_WORKER: "2.0"
+  
 
   SKIP_DOWNLOAD: "false" # Always keep false
+  
+  # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
+  RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
+  
+  # NCCL settings for multi-GPU K-means across nodes
+  # Enable debug info to diagnose NCCL communication failures
+  NCCL_DEBUG: "INFO"
+  # Use the network interface that can reach other nodes
+  NCCL_SOCKET_IFNAME: "ens,eth"
+  # Increase timeout for initialization
+  NCCL_TIMEOUT: "600"
+  # Force socket-based communication (more compatible than IB)
+  NCCL_NET: "Socket"
   
   # Ray memory settings to avoid OOM
   RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.3"
@@ -68,7 +85,6 @@ env_vars:
   RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
 
 # The entrypoint script
-# Install local Curator (uploaded via working_dir) so image uses your current code
 entrypoint: python examples/nemo_curator_semantic_dedup/image_dedup_example.py
 
 # Don't retry on failure - easier to debug

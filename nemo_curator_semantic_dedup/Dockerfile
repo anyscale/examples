@@ -2,8 +2,7 @@
 # Uses CUDA 12.8 for GPU-accelerated processing
 FROM anyscale/ray:2.52.0-slim-py312-cu128
 
-# Cache buster - change this to force rebuild
-ARG CACHE_BUST=2025-12-27-v5
+# Note: Cache busting for git clone is done via CURATOR_CACHE_BUST arg below
 
 # Install system dependencies
 RUN sudo apt-get update && \
@@ -40,7 +39,10 @@ RUN uv pip install --system "scikit-learn>=1.5,<1.6" && \
 ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
 ARG CURATOR_REF=avi-test
 # ARG CURATOR_REF=main
-RUN git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
+# Cache bust for git clone - change this value to force re-clone after pushing to branch
+ARG CURATOR_CACHE_BUST=2025-12-29-v3
+RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
+    git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
     uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
 
 # Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
