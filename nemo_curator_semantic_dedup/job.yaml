@@ -28,7 +28,7 @@ env_vars:
   # Input parquet file with image URLs (TEXT and URL columns)
   # LAION dataset (relative to working_dir)
   INPUT_PARQUET: "examples/nemo_curator_semantic_dedup/laion_meta/laion_subset_10m.parquet"
-  MAX_ENTRIES: "100000"  # Limit for testing
+  MAX_ENTRIES: "10000"  # Limit for testing
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
@@ -52,38 +52,11 @@ env_vars:
   TAR_FILES_PER_PARTITION: "1"
   DOWNLOAD_PROCESSES: "8"
   ENTRIES_PER_TAR: "500"
-  
-  # GPU allocation per worker - 2.0 = one worker per 2 GPUs (very strict limit)
-  # This prevents OOM even with Ray Data pipelining overlap between stages
-  EMBEDDING_GPUS_PER_WORKER: "2.0"
-  
 
   SKIP_DOWNLOAD: "false" # Always keep false
   
   # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
   RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
-  
-  # NCCL settings for multi-GPU K-means across nodes
-  NCCL_DEBUG: "WARN"
-  NCCL_SOCKET_IFNAME: "ens,eth"
-  NCCL_TIMEOUT: "1800"
-  # Disable features that don't work well across nodes on g5 instances
-  NCCL_P2P_DISABLE: "1"      # Disable GPU peer-to-peer (forces host memory path)
-  NCCL_SHM_DISABLE: "1"      # Disable shared memory (forces network for all)
-  NCCL_IB_DISABLE: "1"       # Disable InfiniBand (not available on g5)
-  NCCL_ASYNC_ERROR_HANDLING: "1"  # Better error recovery
-  
-  # Ray memory settings to avoid OOM
-  RAY_DEFAULT_OBJECT_STORE_MEMORY_PROPORTION: "0.3"
-  # Spill objects to disk when memory is low instead of crashing
-  RAY_OBJECT_SPILLING_CONFIG: '{"type":"filesystem","params":{"directory_path":"/tmp/ray_spill"}}'
-  # Kill tasks that use too much memory before they OOM the node
-  RAY_memory_monitor_refresh_ms: "100"
-  # Force garbage collection more frequently
-  RAY_ENABLE_RECORD_ACTOR_TASK_LOGGING: "1"
-  
-  # Increase Ray API server limit for cosmos_xenna monitoring
-  RAY_MAX_LIMIT_FROM_API_SERVER: "100000"
 
 # The entrypoint script
 entrypoint: python examples/nemo_curator_semantic_dedup/image_dedup_example.py
