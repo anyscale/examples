@@ -28,7 +28,7 @@ env_vars:
   # Input parquet file with image URLs (TEXT and URL columns)
   # LAION dataset (relative to working_dir)
   INPUT_PARQUET: "examples/nemo_curator_semantic_dedup/laion_meta/laion_subset_10m.parquet"
-  MAX_ENTRIES: "10000"  # Limit for testing
+  MAX_ENTRIES: "100000"  # Limit for testing
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
