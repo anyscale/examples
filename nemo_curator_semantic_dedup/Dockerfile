@@ -28,12 +28,6 @@ RUN python -m pip install --upgrade pip setuptools wheel
 RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 raft-dask-cu12 rmm-cu12 || true && \
     echo "Cleaned up pre-existing RAPIDS packages"
 
-# Upgrade scikit-learn FIRST in the system environment for cuML compatibility
-# cuML 25.6.* requires sklearn with _get_default_requests (added in sklearn 1.5)
-# This MUST be in the base anaconda env so workers have it
-RUN uv pip install --system "scikit-learn>=1.5,<1.6" && \
-    python -c "import sklearn; print(f'scikit-learn version: {sklearn.__version__}')"
-
 # Clone NeMo-Curator from fork and install in editable mode
 # This ensures all Ray workers have the same code with your local edits
 ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
@@ -61,31 +55,8 @@ RUN uv pip install --system \
     huggingface_hub \
     transformers
 
-# Pre-download CLIP model weights to avoid runtime downloads
-# This makes job startup faster and more reliable
-RUN python -c "\
-from huggingface_hub import snapshot_download; \
-import os; \
-model_dir = '/home/ray/model_weights/openai/clip-vit-large-patch14'; \
-os.makedirs(model_dir, exist_ok=True); \
-snapshot_download('openai/clip-vit-large-patch14', local_dir=model_dir)"
-
 # Set environment variable for model directory
 ENV MODEL_DIR=/home/ray/model_weights
-
-# Download and prepare the example dataset from HuggingFace
-# Downloads MS COCO parquet, deduplicates URLs, and truncates to 100k rows
-RUN mkdir -p /home/ray/data && \
-    curl -L https://huggingface.co/datasets/ChristophSchuhmann/MS_COCO_2017_URL_TEXT/resolve/main/mscoco.parquet \
-         -o /home/ray/data/mscoco.parquet && \
-    python -c "\
-import pandas as pd; \
-df = pd.read_parquet('/home/ray/data/mscoco.parquet'); \
-deduped = df[~df['URL'].duplicated()]; \
-truncated = deduped[:100000]; \
-truncated.to_parquet('/home/ray/data/truncated_100k_mscoco.parquet'); \
-print(f'Created truncated dataset with {len(truncated)} rows')" && \
-    rm /home/ray/data/mscoco.parquet
 
 # Create output directories
 RUN mkdir -p /home/ray/data/webdataset \
