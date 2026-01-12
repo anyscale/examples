@@ -1,5 +1,13 @@
 # NeMo Curator Image Semantic Deduplication Job
 # View the docs: https://docs.anyscale.com/reference/job-api#jobconfig
+#
+# This job runs a two-phase pipeline:
+#   Phase 1: Convert parquet (URLs) → WebDataset tar files (using Ray Data, distributed)
+#   Phase 2: Run NeMo Curator image deduplication (CLIP embeddings → semantic dedup)
+#
+# The parquet → tar conversion uses Ray Data to distribute image downloads
+# across all nodes in the cluster, providing much better scalability than
+# single-node processing.
 
 name: nemo-curator-image-dedup
 
@@ -50,16 +58,23 @@ env_vars:
   BATCH_SIZE: "4"
   EMBEDDING_BATCH_SIZE: "8"
   TAR_FILES_PER_PARTITION: "1"
-  DOWNLOAD_PROCESSES: "8"
   ENTRIES_PER_TAR: "500"
-
-  SKIP_DOWNLOAD: "false" # Always keep false
+  
+  # Ray Data settings for parquet -> tar conversion
+  # Uses distributed processing across all nodes in the cluster
+  USE_RAY_DATA: "true"  # Set to "false" for single-node multiprocessing
+  # DOWNLOAD_CONCURRENCY: ""  # Auto-detected from cluster resources if not set
+  
+  SKIP_DOWNLOAD: "false"  # Set to "true" to skip parquet->tar and use existing tars
   
   # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
   RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
+  
+  # Disable Python output buffering for real-time logs
+  PYTHONUNBUFFERED: "1"
 
-# The entrypoint script
-entrypoint: python examples/nemo_curator_semantic_dedup/image_dedup_example.py
+# The entrypoint script (-u for unbuffered output)
+entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.py
 
 # Don't retry on failure - easier to debug
 max_retries: 0

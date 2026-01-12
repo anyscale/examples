@@ -17,7 +17,7 @@ import os
 import time
 
 import ray
-from helper import download_webdataset
+from helper import download_webdataset, parquet_to_webdataset_ray
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
@@ -132,27 +132,42 @@ def main(args: argparse.Namespace) -> None:
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.batch_size}")
+    print(f"Use Ray Data for parquet->tar: {args.use_ray_data}")
+    if args.max_entries:
+        print(f"Max entries (testing): {args.max_entries}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
     if not args.skip_download:
-        print("Step 1: Downloading webdataset from parquet file...")
+        print("Step 1: Converting parquet to WebDataset tar files...")
+        print(f"  Approach: {'Ray Data (distributed)' if args.use_ray_data else 'Single-node multiprocessing'}")
         download_start = time.time()
 
         # Create output directory if it doesn't exist
         os.makedirs(args.input_wds_dataset_dir, exist_ok=True)
 
-        # Download webdataset using helper function
-        download_webdataset(
-            parquet_path=args.input_parquet,
-            output_dir=args.input_wds_dataset_dir,
-            num_processes=args.download_processes,
-            entries_per_tar=args.entries_per_tar,
-            max_entries=args.max_entries,
-        )
+        if args.use_ray_data:
+            # Use Ray Data for distributed processing across the cluster
+            stats = parquet_to_webdataset_ray(
+                parquet_path=args.input_parquet,
+                output_dir=args.input_wds_dataset_dir,
+                entries_per_tar=args.entries_per_tar,
+                max_entries=args.max_entries,
+                concurrency=args.download_concurrency,
+            )
+            print(f"  Created {stats['num_shards']} tar shards with {stats['total_success']} images")
+        else:
+            # Legacy single-node approach
+            download_webdataset(
+                parquet_path=args.input_parquet,
+                output_dir=args.input_wds_dataset_dir,
+                num_processes=args.download_processes,
+                entries_per_tar=args.entries_per_tar,
+                max_entries=args.max_entries,
+            )
 
         download_time = time.time() - download_start
-        print(f"✓ Dataset download completed in {download_time:.2f} seconds")
+        print(f"✓ Dataset conversion completed in {download_time:.2f} seconds")
         print(f"✓ Webdataset saved to: {args.input_wds_dataset_dir}")
         print("\n" + "=" * 50 + "\n")
     else:
@@ -307,6 +322,24 @@ if __name__ == "__main__":
         default=None,
         help="Maximum entries to download for testing (env: MAX_ENTRIES). None = no limit."
     )
+    parser.add_argument(
+        "--use-ray-data",
+        action="store_true",
+        default=None,
+        help="Use Ray Data for distributed parquet->tar conversion (env: USE_RAY_DATA, default: true)"
+    )
+    parser.add_argument(
+        "--no-ray-data",
+        action="store_true",
+        default=False,
+        help="Disable Ray Data, use single-node multiprocessing instead"
+    )
+    parser.add_argument(
+        "--download-concurrency",
+        type=int,
+        default=None,
+        help="Number of concurrent download tasks for Ray Data (env: DOWNLOAD_CONCURRENCY)"
+    )
 
     # Image reader arguments
     parser.add_argument(
@@ -354,6 +387,12 @@ if __name__ == "__main__":
     cli_args = parser.parse_args()
     
     # Resolve arguments from environment variables or command-line args
+    # Determine if Ray Data should be used (default: True unless --no-ray-data is set)
+    use_ray_data_env = os.environ.get("USE_RAY_DATA", "true").lower() in ("true", "1", "yes")
+    use_ray_data = use_ray_data_env if not cli_args.no_ray_data else False
+    if cli_args.use_ray_data:
+        use_ray_data = True
+    
     args = argparse.Namespace(
         input_parquet=get_env_or_arg("INPUT_PARQUET", cli_args.input_parquet),
         input_wds_dataset_dir=get_env_or_arg("INPUT_WDS_DIR", cli_args.input_wds_dataset_dir),
@@ -365,6 +404,8 @@ if __name__ == "__main__":
         entries_per_tar=get_env_int("ENTRIES_PER_TAR", cli_args.entries_per_tar, 1000),
         max_entries=int(get_env_or_arg("MAX_ENTRIES", cli_args.max_entries)) if get_env_or_arg("MAX_ENTRIES", cli_args.max_entries) else None,
         skip_download=get_env_bool("SKIP_DOWNLOAD", cli_args.skip_download, False),
+        use_ray_data=use_ray_data,
+        download_concurrency=get_env_int("DOWNLOAD_CONCURRENCY", cli_args.download_concurrency, None) if get_env_or_arg("DOWNLOAD_CONCURRENCY", cli_args.download_concurrency) else None,
         tar_files_per_partition=get_env_int("TAR_FILES_PER_PARTITION", cli_args.tar_files_per_partition, 1),
         batch_size=get_env_int("BATCH_SIZE", cli_args.batch_size, 100),
         embedding_batch_size=get_env_int("EMBEDDING_BATCH_SIZE", cli_args.embedding_batch_size, 32),
