@@ -1,4 +1,4 @@
-# Megatron-Bridge LLM Fine-Tuning with Ray Train
+# Fine-Tuning LLM with Megatron-Bridge and Ray Train
 
 This example demonstrates how to run **Megatron-Bridge** training using **Ray Train** for multi-GPU distributed training on Anyscale. It performs Supervised Fine-Tuning (SFT) on a Qwen/Qwen2.5-0.5B model.
 
@@ -49,7 +49,7 @@ Follow the [Build Farm guide](https://docs.anyscale.com/container-image/build-im
 2. Select the `megatron-bridge-ray-train` image you just built.
 3. Configure the **Compute**:
    - **Head Node:** 1x CPU node (e.g., `m5.xlarge`).
-   - **Worker Nodes:** Seelct `Auto-select nodes` option.
+   - **Worker Nodes:** Select the `Auto-select nodes` option. It will automatically use 4xL4 GPUs in your cloud. Make sure you have the available GPUs.
 
 ### 3. Run the Training
 
@@ -80,6 +80,8 @@ python llm_sft_ray_train_megatron.py \
     --storage_path /mnt/cluster_storage/megatron_experiment
 ```
 
-> **Note:** If you are using fewer than 8 GPUs, you must adjust `--num_workers`, `--tensor_parallel_size` (TP), and `--pipeline_parallel_size` (PP) so that `TP * PP * DP = Total GPUs`.
+> **Note:** The configuration must satisfy `TP * PP * DP = Total GPUs`. For example, when using 8 GPUs (`--num_workers 8`), setting `TP=2` (`--tensor_parallel_size 2`) and `PP=2` (`--pipeline_parallel_size 2`) implies `DP = 8 / (2 * 2) = 2`. If you are using fewer than 8 GPUs, you must adjust these parameters accordingly.
 
 ### 4. Locate the checkpoints
+After the training, you can locate the checkpoints in `/mnt/cluster_storage/megatron_experiment/megatron_outputs/checkpoints`.
+
