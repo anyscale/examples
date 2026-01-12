@@ -9,13 +9,16 @@ containerfile: ./Dockerfile
 # Alternatively, use a pre-built image (ask an Anyscale engineer for access)
 #image_uri: anyscale/image/megatron-bridge-te:1 
 
+# When empty, Anyscale will auto-select the instance types. You can also specify
+# minimum and maximum resources.
 compute_config:
-  head_node:
-    instance_type: m5.xlarge
-  worker_nodes:
-    - instance_type: g6e.12xlarge  # 4x L40S GPUs per node
-      min_nodes: 2
-      max_nodes: 2
+# compute_config:
+#   head_node:
+#     instance_type: m5.xlarge
+#   worker_nodes:
+#     - instance_type: g6.12xlarge  # 4x L4 GPUs per node
+#       min_nodes: 2
+#       max_nodes: 2
 
 working_dir: .
 
@@ -24,7 +27,8 @@ requirements: requirements.txt
 
 env_vars:
   RAY_TRAIN_V2_ENABLED: "1"
-  PYTHONPATH: "./src:./3rdparty/Megatron-LM"
+  MEGATRON_BRIDGE_ROOT: "/app/Megatron-Bridge"
+  PYTHONPATH: "/app/Megatron-Bridge/src:/app/Megatron-Bridge/3rdparty/Megatron-LM"
   NCCL_DEBUG: "WARN"
   PYTHONUNBUFFERED: "1"
 

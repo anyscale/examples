@@ -361,6 +361,7 @@ def main():
         num_workers=args.num_workers,
         use_gpu=True,
         resources_per_worker={"GPU": 1},
+        accelerator_type="L4", 
         placement_strategy="PACK",
     )
 

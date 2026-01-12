@@ -23,3 +23,8 @@ RUN pip install --no-cache-dir nvidia-resiliency-ext
 RUN pip install --no-cache-dir --no-build-isolation transformer_engine[pytorch]
 
 WORKDIR /app
+
+# Clone Megatron-Bridge and submodules
+RUN git clone https://github.com/NVIDIA-NeMo/Megatron-Bridge.git && \
+    cd Megatron-Bridge && \
+    git submodule update --init 3rdparty/Megatron-LM
