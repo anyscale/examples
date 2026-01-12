@@ -1,0 +1,41 @@
+# Anyscale Job configuration for Megatron-Bridge training
+# 8 GPUs: 2 worker nodes with 4 GPUs each (g6e.12xlarge)
+
+name: ray-train-megatron-bridge-8gpu-job
+
+# Build a custom image using the local Dockerfile
+containerfile: ./Dockerfile  
+
+# Alternatively, use a pre-built image (ask an Anyscale engineer for access)
+#image_uri: anyscale/image/megatron-bridge-te:1 
+
+compute_config:
+  head_node:
+    instance_type: m5.xlarge
+  worker_nodes:
+    - instance_type: g6e.12xlarge  # 4x L40S GPUs per node
+      min_nodes: 2
+      max_nodes: 2
+
+working_dir: .
+
+# Override workspace dependencies - ensure requirements.txt exists in the working directory
+requirements: requirements.txt
+
+env_vars:
+  RAY_TRAIN_V2_ENABLED: "1"
+  PYTHONPATH: "./src:./3rdparty/Megatron-LM"
+  NCCL_DEBUG: "WARN"
+  PYTHONUNBUFFERED: "1"
+
+entrypoint: >-
+  python llm_sft_ray_train_megatron.py
+  --hf_model_path Qwen/Qwen2.5-0.5B
+  --num_workers 8
+  --tensor_parallel_size 2
+  --pipeline_parallel_size 2
+  --train_iters 100
+  --global_batch_size 8
+  --micro_batch_size 1
+  --seq_length 512
+  --storage_path /mnt/cluster_storage/megatron_experiment
