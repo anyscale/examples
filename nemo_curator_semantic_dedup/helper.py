@@ -15,62 +15,98 @@
 """
 Helper functions for downloading and preparing image datasets.
 
-This module provides two approaches for converting parquet files (with URLs) to WebDataset format:
+This module provides `parquet_to_webdataset_ray()` for converting parquet files 
+(with URLs) to WebDataset format using Ray Data:
 
-1. `parquet_to_webdataset_ray()` - Distributed approach using Ray Data (recommended)
-   - Scales across all nodes in the cluster
-   - Uses Ray Data for parallel reading and processing
-   - Best for large datasets (millions of images)
-
-2. `download_webdataset()` - Single-node multiprocessing approach (legacy)
-   - Runs on a single machine
-   - Uses Python multiprocessing for parallelism
-   - Simpler but doesn't scale beyond one node
+- Uses ThreadPoolExecutor + requests.Session for high-throughput downloads
+- Connection pooling for efficient HTTP connections
+- Scales across all nodes in the Ray cluster
+- Best for large datasets (millions of images)
 """
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import os
 import tarfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
-import aiohttp
 import pandas as pd
-from loguru import logger
+import requests
 from PIL import Image
 
 if TYPE_CHECKING:
     pass
 
-# HTTP status codes
-HTTP_OK = 200
+
+# =============================================================================
+# Image Download Utilities
+# =============================================================================
+
+def download_single_image(url: str, session: requests.Session) -> dict[str, Any]:
+    """
+    Download a single image using an existing session for connection pooling.
+    
+    Args:
+        url: Image URL to download
+        session: requests.Session with connection pooling configured
+        
+    Returns:
+        Dict with 'content' (bytes or None), 'status', and 'url'
+    """
+    try:
+        response = session.get(url, timeout=5, stream=True)
+        
+        if response.status_code == 200:
+            return {"content": response.content, "status": "success", "url": url}
+        else:
+            return {"content": None, "status": f"http_{response.status_code}", "url": url}
+    except Exception as e:
+        return {"content": None, "status": f"error_{type(e).__name__}", "url": url}
+
+
+def image_download_batch(batch: dict[str, Any]) -> dict[str, Any]:
+    """
+    Download a batch of images using ThreadPoolExecutor for parallelism.
+    
+    Uses connection pooling for efficient HTTP connections - this is much
+    faster than ray.data.expressions.download() which processes URLs one at a time.
+    
+    Args:
+        batch: Dict with 'URL' or 'url' column containing URLs
+        
+    Returns:
+        Batch with 'bytes' column added containing downloaded image bytes
+    """
+    # Get URLs from batch (handle both cases)
+    urls = batch.get("URL", batch.get("url", []))
+    
+    # Create a session with connection pooling for efficient downloads
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=100,
+        pool_maxsize=100,
+        max_retries=0,  # No automatic retries - fail fast
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    # Use ThreadPoolExecutor for parallel downloads within this batch
+    # 50 threads means 50 concurrent downloads per Ray task
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        results = list(executor.map(lambda url: download_single_image(url, session), urls))
+    
+    # Add bytes column to batch
+    batch["bytes"] = [r["content"] for r in results]
+    return batch
 
 
 # =============================================================================
-# Image Download and Validation Utilities
+# Image Validation Utilities
 # =============================================================================
-
-async def fetch_image_bytes(session: aiohttp.ClientSession, url: str, retries: int = 3) -> bytes | None:
-    """Fetch image bytes from URL with retries."""
-    last_error = None
-    for attempt in range(1, retries + 1):
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                if response.status == HTTP_OK:
-                    return await response.read()
-                last_error = f"HTTP {response.status}"
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            last_error = str(e)
-
-        if attempt < retries:
-            await asyncio.sleep(1)
-
-    return None
-
 
 def validate_and_convert_to_jpeg(image_bytes: bytes) -> bytes | None:
     """
@@ -122,50 +158,19 @@ def validate_and_convert_to_jpeg(image_bytes: bytes) -> bytes | None:
         return None
 
 
-async def download_batch_images(
-    batch: pd.DataFrame,
-    url_col: str = "URL",
-    text_col: str = "TEXT",
-) -> list[dict[str, Any]]:
+def process_image(row: dict[str, Any]) -> dict[str, Any]:
     """
-    Download images for a batch of URLs asynchronously.
+    Process a single image: validate and convert to JPEG.
     
-    Args:
-        batch: DataFrame with URL and TEXT columns
-        url_col: Name of URL column
-        text_col: Name of text/caption column
-        
-    Returns:
-        List of dicts with 'url', 'caption', 'jpeg_bytes' (None if failed)
+    This is used as a Ray Data map function after downloading.
     """
-    timeout = aiohttp.ClientTimeout(total=15)
-    connector = aiohttp.TCPConnector(limit=256, limit_per_host=16)
+    image_bytes = row.get("bytes")
+    if image_bytes is None:
+        row["jpeg_bytes"] = None
+        return row
     
-    results = []
-    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        tasks = []
-        metadata = []
-        
-        for _, row in batch.iterrows():
-            url = row[url_col]
-            caption = row[text_col]
-            metadata.append({"url": url, "caption": caption})
-            tasks.append(fetch_image_bytes(session, url, retries=3))
-        
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for meta, raw_bytes in zip(metadata, raw_results):
-            jpeg_bytes = None
-            if isinstance(raw_bytes, bytes) and raw_bytes:
-                jpeg_bytes = validate_and_convert_to_jpeg(raw_bytes)
-            
-            results.append({
-                "url": meta["url"],
-                "caption": meta["caption"],
-                "jpeg_bytes": jpeg_bytes,
-            })
-    
-    return results
+    row["jpeg_bytes"] = validate_and_convert_to_jpeg(image_bytes)
+    return row
 
 
 def write_tar_shard(
@@ -184,6 +189,12 @@ def write_tar_shard(
     Returns:
         Dict with 'success_count' and 'total_count'
     """
+    # Count successful images first to avoid creating empty tar files
+    valid_images = [img for img in images if img["jpeg_bytes"] is not None]
+    if not valid_images:
+        # Don't create empty tar files - DALI will crash on them
+        return {"success_count": 0, "total_count": len(images)}
+    
     success_count = 0
     metadatas = []
     
@@ -228,15 +239,15 @@ def write_tar_shard(
 # Ray Data Approach (Distributed)
 # =============================================================================
 
-def process_batch_ray(batch: dict[str, Any], output_dir: str) -> dict[str, Any]:
+def write_tar_batch(batch: dict[str, Any], output_dir: str) -> dict[str, Any]:
     """
-    Ray Data map function to process a batch of URLs.
+    Ray Data map_batches function to write a batch of images to a tar shard.
     
-    This function is called by Ray Data's map_batches() and runs distributed
-    across all nodes in the cluster.
+    This function is called after images have been downloaded and processed.
+    It writes valid images to a WebDataset tar file.
     
     Args:
-        batch: Dict with 'URL' and 'TEXT' arrays (Ray Data batch format)
+        batch: Dict with 'URL', 'TEXT', 'jpeg_bytes' arrays
         output_dir: Directory to write tar files
         
     Returns:
@@ -244,19 +255,23 @@ def process_batch_ray(batch: dict[str, Any], output_dir: str) -> dict[str, Any]:
     """
     import ray
     
-    # Convert Ray Data batch format to DataFrame
-    df = pd.DataFrame({
-        "URL": batch["URL"],
-        "TEXT": batch["TEXT"],
-    })
-    
     # Generate unique shard ID using node ID + UUID to avoid collisions
     node_id = ray.get_runtime_context().get_node_id()[:8]
     shard_id = f"{node_id}_{uuid.uuid4().hex[:8]}"
     tar_path = os.path.join(output_dir, f"{shard_id}.tar")
     
-    # Download images asynchronously
-    images = asyncio.run(download_batch_images(df))
+    # Convert batch to list of dicts for write_tar_shard
+    images = []
+    urls = batch.get("URL", batch.get("url", []))
+    texts = batch.get("TEXT", batch.get("text", batch.get("caption", [])))
+    jpeg_bytes_list = batch.get("jpeg_bytes", [])
+    
+    for i in range(len(urls)):
+        images.append({
+            "url": urls[i],
+            "caption": texts[i] if i < len(texts) else "",
+            "jpeg_bytes": jpeg_bytes_list[i] if i < len(jpeg_bytes_list) else None,
+        })
     
     # Write tar shard
     stats = write_tar_shard(images, tar_path, shard_id)
@@ -279,8 +294,9 @@ def parquet_to_webdataset_ray(
     """
     Convert parquet file with URLs to WebDataset tar files using Ray Data.
     
-    This distributes the download work across all nodes in the Ray cluster,
-    providing much better scalability than single-node processing.
+    Uses ThreadPoolExecutor + requests.Session with connection pooling for
+    high-throughput downloads. Each Ray task spawns 50 threads for concurrent
+    downloads, making this much faster than sequential per-row approaches.
     
     Args:
         parquet_path: Path to parquet file with URL and TEXT columns
@@ -292,7 +308,9 @@ def parquet_to_webdataset_ray(
     Returns:
         Dict with 'total_success' and 'total_attempted' counts
     """
+    import ray
     import ray.data
+    from functools import partial
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -304,32 +322,26 @@ def parquet_to_webdataset_ray(
     # Get schema and normalize column names
     schema = ds.schema()
     col_names = schema.names if hasattr(schema, 'names') else [f.name for f in schema]
-    col_map = {}
     
-    # Handle case-insensitive column matching
+    # Find URL column (case-insensitive)
+    url_col = None
+    text_col = None
     for col in col_names:
         if col.lower() == "url":
-            col_map[col] = "URL"
+            url_col = col
         elif col.lower() in ("text", "caption"):
-            col_map[col] = "TEXT"
+            text_col = col
     
-    if col_map:
-        # Rename columns to standard names
-        def rename_cols(batch):
-            result = {}
-            for old_name, new_name in col_map.items():
-                if old_name in batch:
-                    result[new_name] = batch[old_name]
-            # Keep any columns that weren't renamed
-            for col in batch:
-                if col not in col_map and col not in result:
-                    result[col] = batch[col]
-            return result
-        
-        ds = ds.map_batches(rename_cols, batch_format="pandas")
+    if url_col is None:
+        raise ValueError(f"No URL column found in parquet. Available: {col_names}")
+    
+    print(f"Using columns: URL={url_col}, TEXT={text_col}")
     
     # Select only the columns we need
-    ds = ds.select_columns(["URL", "TEXT"])
+    columns_to_keep = [url_col]
+    if text_col:
+        columns_to_keep.append(text_col)
+    ds = ds.select_columns(columns_to_keep)
     
     # Apply max_entries limit
     if max_entries is not None:
@@ -340,23 +352,47 @@ def parquet_to_webdataset_ray(
     total_rows = ds.count()
     print(f"Total entries to process: {total_rows}")
     
-    # Process batches in parallel across the cluster
-    # Each batch becomes one tar shard
-    from functools import partial
-    
-    process_fn = partial(process_batch_ray, output_dir=output_dir)
-    
     # Determine concurrency based on cluster resources
     if concurrency is None:
-        import ray
         cluster_resources = ray.cluster_resources()
-        concurrency = max(1, int(cluster_resources.get("CPU", 4) // 2))
+        concurrency = max(4, int(cluster_resources.get("CPU", 4)))
     
     print(f"Processing with concurrency={concurrency}, entries_per_tar={entries_per_tar}")
     
-    # map_batches distributes work across all nodes
+    # Step 1: Download images using ThreadPoolExecutor + connection pooling
+    # This is much faster than ray.data.expressions.download() because:
+    # - 50 concurrent downloads per Ray task via ThreadPoolExecutor
+    # - Connection pooling reuses HTTP connections
+    print("Downloading images with ThreadPoolExecutor + connection pooling...")
+    ds = ds.map_batches(
+        image_download_batch,
+        batch_size=100,  # 100 URLs per batch, 50 threads = fast downloads
+        batch_format="numpy",
+    )
+    
+    # Step 2: Process images - validate and convert to JPEG
+    # Filter out failed downloads first
+    ds = ds.filter(lambda row: row.get("bytes") is not None)
+    ds = ds.map(process_image)
+    
+    # Step 3: Filter out images that failed validation
+    ds = ds.filter(lambda row: row.get("jpeg_bytes") is not None)
+    
+    # Normalize column names for tar writing
+    def normalize_columns(row):
+        return {
+            "URL": row.get(url_col, row.get("url", "")),
+            "TEXT": row.get(text_col, row.get("text", row.get("caption", ""))) if text_col else "",
+            "jpeg_bytes": row.get("jpeg_bytes"),
+        }
+    ds = ds.map(normalize_columns)
+    
+    # Step 4: Write tar shards in batches
+    # Note: Don't use repartition() here - it's a barrier that blocks streaming
+    write_fn = partial(write_tar_batch, output_dir=output_dir)
+    
     results_ds = ds.map_batches(
-        process_fn,
+        write_fn,
         batch_size=entries_per_tar,
         batch_format="numpy",
         concurrency=concurrency,
@@ -366,7 +402,7 @@ def parquet_to_webdataset_ray(
     results = results_ds.take_all()
     
     total_success = sum(r["success_count"] for r in results)
-    total_attempted = sum(r["total_count"] for r in results)
+    total_attempted = total_rows
     num_shards = len(results)
     
     # Report results
@@ -383,142 +419,3 @@ def parquet_to_webdataset_ray(
         "total_attempted": total_attempted,
         "num_shards": num_shards,
     }
-
-
-# =============================================================================
-# Single-Node Multiprocessing Approach (Legacy)
-# =============================================================================
-
-async def process_batch_single_node(batch: pd.DataFrame, output_dir: str, batch_num: int) -> int:
-    """Process a batch of URLs and return the number of successfully downloaded images."""
-    tar_filename = os.path.join(output_dir, f"{batch_num:05d}.tar")
-    shard_id = f"{batch_num:05d}"
-    
-    # Download images
-    images = await download_batch_images(batch)
-    
-    # Write tar shard
-    stats = write_tar_shard(images, tar_filename, shard_id)
-    return stats["success_count"]
-
-
-def process_parquet_chunk(chunk: tuple[int, pd.DataFrame], output_dir: str) -> int:
-    """Process a chunk and return the number of successfully downloaded images."""
-    batch_num, batch = chunk
-    return asyncio.run(process_batch_single_node(batch, output_dir, batch_num))
-
-
-def download_webdataset(
-    parquet_path: str,
-    output_dir: str,
-    entries_per_tar: int = 10000,
-    num_processes: int = 2,
-    max_entries: int | None = None,
-) -> None:
-    """
-    Single-node approach: Stream parquet into WebDataset tar shards using multiprocessing.
-    
-    This is the legacy approach that runs on a single machine. For distributed
-    processing across a Ray cluster, use `parquet_to_webdataset_ray()` instead.
-    
-    Args:
-        parquet_path: Path to the parquet file containing URLs and text
-        output_dir: Directory to save the webdataset tar files
-        entries_per_tar: Number of entries per tar file
-        num_processes: Number of parallel download processes
-        max_entries: Maximum number of entries to process (for testing). None = no limit.
-    """
-    import math
-    from functools import partial
-    from multiprocessing import Pool
-    
-    import pyarrow.dataset as pa_ds
-    from tqdm import tqdm
-    
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Stream the Parquet in batches
-    dataset = pa_ds.dataset(parquet_path, format="parquet")
-    schema = dataset.schema
-    available = set(schema.names)
-
-    def resolve_cols() -> list[str]:
-        resolved = []
-        for col in ["URL", "TEXT"]:
-            if col in available:
-                resolved.append(col)
-                continue
-            lower = col.lower()
-            if lower in available:
-                resolved.append(lower)
-                continue
-            if col.upper() == "TEXT" and "caption" in available:
-                resolved.append("caption")
-        if not resolved:
-            raise ValueError(f"No URL/TEXT-like columns found in {parquet_path}; available: {sorted(available)}")
-        return resolved
-
-    resolved_cols = resolve_cols()
-    total_rows = dataset.count_rows()
-
-    # Apply max_entries limit for testing
-    if max_entries is not None and total_rows is not None:
-        total_rows = min(total_rows, max_entries)
-        print(f"Limiting to {max_entries} entries for testing")
-
-    total_chunks = math.ceil(total_rows / entries_per_tar) if total_rows is not None else None
-
-    def batch_iter():
-        batch_num = 0
-        rows_yielded = 0
-        for batch in dataset.to_batches(columns=resolved_cols, batch_size=entries_per_tar):
-            df = batch.to_pandas()
-
-            # Apply max_entries limit
-            if max_entries is not None:
-                remaining = max_entries - rows_yielded
-                if remaining <= 0:
-                    break
-                if len(df) > remaining:
-                    df = df.head(remaining)
-
-            # normalize column names to URL/TEXT expected downstream
-            col_map: dict[str, str] = {}
-            if "url" in df.columns and "URL" not in df.columns:
-                col_map["url"] = "URL"
-            if "caption" in df.columns and "TEXT" not in df.columns:
-                col_map["caption"] = "TEXT"
-            df = df.rename(columns=col_map)
-            yield (batch_num, df)
-            rows_yielded += len(df)
-            batch_num += 1
-
-    total_success = 0
-    total_attempted = 0
-    with Pool(processes=num_processes) as pool:
-        func = partial(process_parquet_chunk, output_dir=output_dir)
-        for success_count in tqdm(
-            pool.imap_unordered(func, batch_iter()),
-            total=total_chunks,
-            desc="Processing chunks",
-            unit="chunk",
-        ):
-            total_success += success_count
-            total_attempted += entries_per_tar  # approximate
-
-    # Report download success rate
-    success_rate = (total_success / total_attempted * 100) if total_attempted > 0 else 0
-    print(f"\n✓ Download complete: {total_success} images saved ({success_rate:.1f}% success rate)")
-    print(f"  Note: LAION datasets have high link rot - many URLs no longer work.")
-    
-    if total_success == 0:
-        print("\n⚠️  WARNING: No images were downloaded successfully!")
-        print("  This is likely due to LAION link rot. Try increasing MAX_ENTRIES.")
-
-    # Best-effort cleanup of legacy tmp dir from previous versions
-    tmp_dir = os.path.join(output_dir, "tmp")
-    try:
-        if os.path.isdir(tmp_dir) and not os.listdir(tmp_dir):
-            os.rmdir(tmp_dir)
-    except OSError as e:
-        logger.debug(f"Failed to remove tmp dir {tmp_dir}: {e}")
