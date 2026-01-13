@@ -61,8 +61,7 @@ env_vars:
   ENTRIES_PER_TAR: "500"
   
   # Ray Data settings for parquet -> tar conversion
-  # Uses distributed processing across all nodes in the cluster
-  USE_RAY_DATA: "true"  # Set to "false" for single-node multiprocessing
+  # Uses ray.data.expressions.download() for distributed downloads
   # DOWNLOAD_CONCURRENCY: ""  # Auto-detected from cluster resources if not set
   
   SKIP_DOWNLOAD: "false"  # Set to "true" to skip parquet->tar and use existing tars
