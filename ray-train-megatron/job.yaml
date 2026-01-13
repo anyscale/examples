@@ -7,7 +7,7 @@ name: ray-train-megatron-bridge-8gpu-job
 containerfile: ./Dockerfile  
 
 # Alternatively, use a pre-built image (ask an Anyscale engineer for access)
-#image_uri: anyscale/image/megatron-bridge-te:1 
+#image_uri: anyscale/image/megatron-bridge-ray-train:1 
 
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
