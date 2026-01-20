@@ -1,13 +1,15 @@
 import ray
 import numpy as np
 import os
+from datetime import datetime, timezone
 from huggingface_hub import HfFileSystem
 from data_juicer.core.data.ray_dataset import RayDataset
 from data_juicer.ops import load_ops
 
 NUM_ROWS = 10**7
 
-output_path = f"/mnt/shared_storage/fineweb_processed/{np.random.randint(1000000)}"
+timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+output_path = f"/mnt/shared_storage/fineweb_processed/{timestamp}"
 
 # Load FineWeb-edu data from HF with rate limiting to avoid bandwidth quota errors
 ds = (

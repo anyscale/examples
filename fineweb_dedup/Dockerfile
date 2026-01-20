@@ -14,7 +14,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install dependencies directly (Anyscale doesn't allow COPY from local directories)
 RUN uv pip install --system \
-    "py-data-juicer[nlp] @ git+https://github.com/xyuzh/data-juicer.git@feat/ray-minhash-memory-reservation" \
+    "py-data-juicer[nlp]==1.4.5" \
     gcsfs \
     s3fs \
     tiktoken \
