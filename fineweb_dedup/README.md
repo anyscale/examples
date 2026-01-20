@@ -28,7 +28,7 @@ Submit the job. Use `--env` to forward your Hugging Face token to authenticate w
 anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
 ```
 
-Results will be written to parquet files under `/mnt/shared_storage/fineweb_processed/{RANDOM_VALUE}/`.
+Results will be written to parquet files under `/mnt/shared_storage/fineweb_processed/{TIMESTAMP}/`.
 
 
 ## Understanding the example
@@ -47,12 +47,12 @@ Results will be written to parquet files under `/mnt/shared_storage/fineweb_proc
 
 ## View the processed data.
 
-This example writes the outputs to `/mnt/shared_storage/fineweb_processed/{RANDOM_VALUE}/`. To read the outputs and inspect them, start an Anyscale workspace and run something like the following
+This example writes the outputs to `/mnt/shared_storage/fineweb_processed/{TIMESTAMP}/`. To read the outputs and inspect them, start an Anyscale workspace and run something like the following
 
 ```python
 import ray
 
-output_path = f"/mnt/shared_storage/fineweb_processed/{FILL IN APPROPRIATE VALUE}"
+output_path = f"/mnt/shared_storage/fineweb_processed/{FILL IN APPROPRIATE TIMESTAMP}"
 output_ds = ray.data.read_parquet(output_path)
 print(output_ds.take(10))
 ```
