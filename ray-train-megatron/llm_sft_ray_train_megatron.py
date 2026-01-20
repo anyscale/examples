@@ -38,6 +38,13 @@ from typing import Any, Dict
 # Enable Ray Train V2
 os.environ["RAY_TRAIN_V2_ENABLED"] = "1"
 
+# Required for sequence parallelism with tensor parallelism > 1
+# Without this, communication and computation cannot properly overlap
+os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
+
+# PyTorch memory optimization - reduces fragmentation
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 # Get Megatron-Bridge and Megatron-LM paths for workers
 # When running as a Ray job with working_dir sync, MEGATRON_BRIDGE_ROOT env var should be set
 # Otherwise, compute paths relative to script location
@@ -177,11 +184,13 @@ def create_megatron_config(
         use_gloo_process_groups=False,  # Disable Gloo groups - Ray Train handles this
     )
 
-    # Logger configuration
+    # Logger configuration with enhanced metrics
     logger_cfg = LoggerConfig(
         log_interval=10,
         tensorboard_dir=tensorboard_dir,
         log_timers_to_tensorboard=True,
+        log_memory_to_tensorboard=True,  # Track GPU memory usage
+        log_throughput_to_tensorboard=True,  # Track training throughput
     )
 
     # Tokenizer configuration
@@ -329,7 +338,28 @@ def train_loop(config: Dict[str, Any]) -> None:
     # but we load weights directly via AutoBridge with load_weights=True
     pretrain(config=megatron_config, forward_step_func=forward_step)
 
+    # Report final metrics to Ray Train dashboard
     if world_rank == 0:
+        import torch
+
+        gpu_mem_allocated = (
+            torch.cuda.max_memory_allocated() / (1024**3)
+            if torch.cuda.is_available()
+            else 0
+        )
+        gpu_mem_reserved = (
+            torch.cuda.max_memory_reserved() / (1024**3)
+            if torch.cuda.is_available()
+            else 0
+        )
+
+        ray.train.report(
+            {
+                "status": "completed",
+                "gpu_memory_allocated_gb": round(gpu_mem_allocated, 2),
+                "gpu_memory_reserved_gb": round(gpu_mem_reserved, 2),
+            }
+        )
         logger.info("Training completed successfully")
 
 

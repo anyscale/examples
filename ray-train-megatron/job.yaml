@@ -27,6 +27,7 @@ requirements: requirements.txt
 
 env_vars:
   RAY_TRAIN_V2_ENABLED: "1"
+  CUDA_DEVICE_MAX_CONNECTIONS: "1"  # Required for sequence parallelism
   MEGATRON_BRIDGE_ROOT: "/app/Megatron-Bridge"
   PYTHONPATH: "/app/Megatron-Bridge/src:/app/Megatron-Bridge/3rdparty/Megatron-LM"
   NCCL_DEBUG: "WARN"
@@ -39,7 +40,7 @@ entrypoint: >-
   --tensor_parallel_size 2
   --pipeline_parallel_size 2
   --train_iters 100
-  --global_batch_size 8
-  --micro_batch_size 1
+  --global_batch_size 32
+  --micro_batch_size 2
   --seq_length 512
   --storage_path /mnt/cluster_storage/megatron_experiment
