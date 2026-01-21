@@ -22,9 +22,6 @@ compute_config:
 
 working_dir: .
 
-# Override workspace dependencies - ensure requirements.txt exists in the working directory
-requirements: requirements.txt
-
 env_vars:
   RAY_TRAIN_V2_ENABLED: "1"
   CUDA_DEVICE_MAX_CONNECTIONS: "1"  # Required for sequence parallelism
@@ -33,14 +30,10 @@ env_vars:
   NCCL_DEBUG: "WARN"
   PYTHONUNBUFFERED: "1"
 
+# Simplified entrypoint - TP=2, PP=2, batch sizes are hardcoded in script
 entrypoint: >-
   python llm_sft_ray_train_megatron.py
   --hf_model_path Qwen/Qwen2.5-0.5B
   --num_workers 8
-  --tensor_parallel_size 2
-  --pipeline_parallel_size 2
   --train_iters 100
-  --global_batch_size 32
-  --micro_batch_size 2
-  --seq_length 512
   --storage_path /mnt/cluster_storage/megatron_experiment
