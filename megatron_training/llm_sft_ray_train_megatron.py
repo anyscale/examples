@@ -252,9 +252,6 @@ def main():
     """Launch Ray Train distributed training."""
     args = parse_args()
 
-    if not ray.is_initialized():
-        ray.init()
-
     # Validate: num_workers must be divisible by TP * PP
     total_parallel = TENSOR_PARALLEL_SIZE * PIPELINE_PARALLEL_SIZE
     if args.num_workers % total_parallel != 0:

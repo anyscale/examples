@@ -5,9 +5,7 @@ name: ray-train-megatron-bridge-8gpu-job
 
 # Build a custom image using the local Dockerfile
 containerfile: ./Dockerfile  
-
-# Alternatively, use a pre-built image (ask an Anyscale engineer for access)
-#image_uri: anyscale/image/megatron-bridge-ray-train:1 
+cloud: 
 
 # When empty, Anyscale will auto-select the instance types. You can also specify
 # minimum and maximum resources.
@@ -15,10 +13,10 @@ compute_config:
 # compute_config:
 #   head_node:
 #     instance_type: m5.xlarge
-#   worker_nodes:
-#     - instance_type: g6.12xlarge  # 4x L4 GPUs per node
-#       min_nodes: 2
-#       max_nodes: 2
+  worker_nodes:
+    - instance_type: 144CPU-1600GB-8xH100  # 4x L4 GPUs per node
+      min_nodes: 1
+      max_nodes: 1
 
 working_dir: .
 
@@ -31,9 +29,9 @@ env_vars:
   PYTHONUNBUFFERED: "1"
 
 # Simplified entrypoint - TP=2, PP=2, batch sizes are hardcoded in script
-entrypoint: >-
-  python llm_sft_ray_train_megatron.py
-  --hf_model_path Qwen/Qwen2.5-0.5B
-  --num_workers 8
-  --train_iters 100
-  --storage_path /mnt/cluster_storage/megatron_experiment
+entrypoint: |
+  python llm_sft_ray_train_megatron.py \
+    --hf_model_path Qwen/Qwen2.5-0.5B \
+    --num_workers 8 \
+    --train_iters 100 \
+    --storage_path /mnt/cluster_storage/megatron_experiment

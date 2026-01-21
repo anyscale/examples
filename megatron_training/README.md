@@ -20,7 +20,7 @@ Clone the repository and submit the job using the provided YAML configuration:
 ```bash
 # Clone the repository
 git clone https://github.com/anyscale/examples.git
-cd examples/ray-train-megatron
+cd examples/megatron_training
 
 # Submit the job
 anyscale job submit -f job.yaml
@@ -58,14 +58,16 @@ Once your Workspace is running, open a terminal (VS Code or Jupyter) and execute
 ```bash
 # 1. Clone the repository
 git clone https://github.com/anyscale/examples.git
-cd examples/ray-train-megatron
+cd examples/megatron_training
 
 # 2. Set environment variables
 export RAY_TRAIN_V2_ENABLED=1
 export MEGATRON_BRIDGE_ROOT=/app/Megatron-Bridge
 export PYTHONPATH=$PYTHONPATH:/app/Megatron-Bridge/src:/app/Megatron-Bridge/3rdparty/Megatron-LM
-export HF_HOME=/mnt/cluster_storage/huggingface
 export PYTHONUNBUFFERED=1
+
+# Note: For private HuggingFace models, set HF_TOKEN:
+# export HF_TOKEN=your_token_here
 
 # 3. Run the training script
 python llm_sft_ray_train_megatron.py \
