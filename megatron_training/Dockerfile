@@ -13,7 +13,11 @@ RUN pip install --no-cache-dir \
     megatron-energon \
     datasets \
     bitstring \
-    filetype
+    filetype \
+    timm \
+    accelerate \
+    rich \
+    wandb>=0.19.10
 
 # Install NVIDIA packages - transformer_engine is the key dependency
 RUN pip install --no-cache-dir nvidia-modelopt

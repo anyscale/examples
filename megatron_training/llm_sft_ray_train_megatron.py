@@ -87,7 +87,7 @@ def create_megatron_config(
     from megatron.bridge.training.config import (
         CheckpointConfig,
         ConfigContainer,
-        DatasetConfig,
+        FinetuningDatasetConfig,
         DistributedDataParallelConfig,
         DistributedInitConfig,
         LoggerConfig,
@@ -165,14 +165,20 @@ def create_megatron_config(
         fully_parallel_save=True,
     )
 
-    # Dataset config: Use HuggingFace dataset directly
-    dataset_cfg = DatasetConfig(
-        data_path=[hf_dataset_name],  # HuggingFace dataset name
-        data_impl="huggingface",  # Use HuggingFace backend
-        split="train",  # Use train split
-        hf_dataset_config_name=hf_dataset_config,  # Dataset subset/config
+    # Dataset config: Use HuggingFace dataset via FinetuningDatasetConfig
+    # In the latest API, HF datasets are loaded via dataset_kwargs
+    dataset_cfg = FinetuningDatasetConfig(
         seq_length=SEQ_LENGTH,
-        packed_sequence=False,
+        dataloader_type="batch",
+        num_workers=2,
+        dataset_kwargs={
+            "hf_dataset": True,
+            "dataset_name": hf_dataset_name,
+            "dataset_config_name": hf_dataset_config,
+            "split": "train",
+        },
+        do_validation=True,
+        do_test=False,
     )
 
     return ConfigContainer(
