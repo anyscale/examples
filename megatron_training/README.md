@@ -1,6 +1,6 @@
 # Fine-Tuning LLM with Megatron-Bridge and Ray Train
 
-This example demonstrates how to run **Megatron-Bridge** training using **Ray Train** for multi-GPU distributed training on Anyscale. It performs Supervised Fine-Tuning (SFT) on a Qwen/Qwen2.5-0.5B model.
+This example demonstrates how to run **Megatron-Bridge** training using **Ray Train** for multi-GPU distributed training on Anyscale. It performs Supervised Fine-Tuning (SFT) on a Qwen/Qwen2.5-7B model.
 
 
 ## Option 1: Run as an Anyscale Job
@@ -71,7 +71,7 @@ export PYTHONUNBUFFERED=1
 
 # 3. Run the training script
 python llm_sft_ray_train_megatron.py \
-    --hf_model_path Qwen/Qwen2.5-0.5B \
+    --hf_model_path Qwen/Qwen2.5-7B \
     --num_workers 8 \
     --tensor_parallel_size 2 \
     --pipeline_parallel_size 2 \

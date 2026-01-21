@@ -20,13 +20,8 @@ Default Configuration:
     - Tensor Parallelism (TP) = 2
     - Pipeline Parallelism (PP) = 2
     - Data Parallelism (DP) = num_workers / (TP * PP)
-    - Model: Qwen/Qwen2.5-0.5B (small, fast for demos)
-    - Dataset: wikitext-2-raw-v1 from HuggingFace (minimal dataset for testing)
-
-Minimal Datasets for Testing:
-    - wikitext/wikitext-2-raw-v1 (default, ~4MB, 36K examples)
-    - ag_news (30MB, 120K examples, use --hf_dataset_name ag_news --hf_dataset_config default)
-    - tiny_shakespeare (1MB, minimal text dataset)
+    - Model: Qwen/Qwen2.5-7B (7B parameter model for production training)
+    - Dataset: wikitext-2-raw-v1 from HuggingFace (dataset for tutorial)
 """
 
 import argparse
@@ -332,8 +327,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hf_model_path",
         type=str,
-        default="Qwen/Qwen2.5-0.5B",
-        help="HuggingFace model (default: Qwen/Qwen2.5-0.5B)",
+        default="Qwen/Qwen2.5-7B",
+        help="HuggingFace model (default: Qwen/Qwen2.5-7B)",
     )
     parser.add_argument(
         "--num_workers",
