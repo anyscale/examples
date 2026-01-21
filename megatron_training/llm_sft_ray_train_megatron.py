@@ -21,6 +21,12 @@ Default Configuration:
     - Pipeline Parallelism (PP) = 2
     - Data Parallelism (DP) = num_workers / (TP * PP)
     - Model: Qwen/Qwen2.5-0.5B (small, fast for demos)
+    - Dataset: wikitext-2-raw-v1 from HuggingFace (minimal dataset for testing)
+
+Minimal Datasets for Testing:
+    - wikitext/wikitext-2-raw-v1 (default, ~4MB, 36K examples)
+    - ag_news (30MB, 120K examples, use --hf_dataset_name ag_news --hf_dataset_config default)
+    - tiny_shakespeare (1MB, minimal text dataset)
 """
 
 import argparse
@@ -71,19 +77,22 @@ def create_megatron_config(
     hf_model_path: str,
     output_dir: str,
     train_iters: int,
+    hf_dataset_name: str = "wikitext",
+    hf_dataset_config: str = "wikitext-2-raw-v1",
 ) -> "ConfigContainer":
     """Create Megatron-Bridge config with tutorial defaults.
 
     Uses hardcoded parallelism settings: TP=2, PP=2, batch=32.
+    Loads dataset from HuggingFace instead of local files.
     """
     from megatron.bridge import AutoBridge
-    from megatron.bridge.recipes.utils.finetune_utils import default_squad_config
     from megatron.bridge.recipes.utils.optimizer_utils import (
         distributed_fused_adam_with_cosine_annealing,
     )
     from megatron.bridge.training.config import (
         CheckpointConfig,
         ConfigContainer,
+        DatasetConfig,
         DistributedDataParallelConfig,
         DistributedInitConfig,
         LoggerConfig,
@@ -161,6 +170,16 @@ def create_megatron_config(
         fully_parallel_save=True,
     )
 
+    # Dataset config: Use HuggingFace dataset directly
+    dataset_cfg = DatasetConfig(
+        data_path=[hf_dataset_name],  # HuggingFace dataset name
+        data_impl="huggingface",  # Use HuggingFace backend
+        split="train",  # Use train split
+        hf_dataset_config_name=hf_dataset_config,  # Dataset subset/config
+        seq_length=SEQ_LENGTH,
+        packed_sequence=False,
+    )
+
     return ConfigContainer(
         model=model_cfg,
         train=train_cfg,
@@ -168,7 +187,7 @@ def create_megatron_config(
         scheduler=scheduler_cfg,
         ddp=ddp_cfg,
         dist=dist_cfg,
-        dataset=default_squad_config(SEQ_LENGTH, packed_sequence=False),
+        dataset=dataset_cfg,
         logger=logger_cfg,
         tokenizer=TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
@@ -224,11 +243,13 @@ def train_loop(config: Dict[str, Any]) -> None:
     if dist.is_initialized():
         dist.barrier()
 
-    # Create config (involves HF model download)
+    # Create config (involves HF model and dataset download)
     megatron_config = create_megatron_config(
         hf_model_path=config["hf_model_path"],
         output_dir=config["output_dir"],
         train_iters=config["train_iters"],
+        hf_dataset_name=config.get("hf_dataset_name", "wikitext"),
+        hf_dataset_config=config.get("hf_dataset_config", "wikitext-2-raw-v1"),
     )
 
     # Synchronize after config creation (HF download times vary)
@@ -263,6 +284,8 @@ def main():
     dp = args.num_workers // total_parallel
     print(f"Configuration: TP={TENSOR_PARALLEL_SIZE}, PP={PIPELINE_PARALLEL_SIZE}, DP={dp}")
     print(f"Total workers: {args.num_workers}")
+    print(f"Model: {args.hf_model_path}")
+    print(f"Dataset: {args.hf_dataset_name} ({args.hf_dataset_config})")
 
     # Ray Train scaling: PACK strategy keeps TP workers on same node
     scaling_config = ScalingConfig(
@@ -280,6 +303,8 @@ def main():
         "output_dir": output_dir,
         "train_iters": args.train_iters,
         "nemo_datasets_cache": nemo_datasets_cache,
+        "hf_dataset_name": args.hf_dataset_name,
+        "hf_dataset_config": args.hf_dataset_config,
     }
 
     experiment_name = f"megatron_ray_{uuid.uuid4().hex[:8]}"
@@ -319,14 +344,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage_path",
         type=str,
-        default="/mnt/cluster_storage",
-        help="Storage path for checkpoints (default: /mnt/cluster_storage)",
+        default="/mnt/local_storage",
+        help="Storage path for checkpoints (default: /mnt/local_storage)",
     )
     parser.add_argument(
         "--train_iters",
         type=int,
         default=100,
         help="Training iterations (default: 100)",
+    )
+    parser.add_argument(
+        "--hf_dataset_name",
+        type=str,
+        default="wikitext",
+        help="HuggingFace dataset name (default: wikitext)",
+    )
+    parser.add_argument(
+        "--hf_dataset_config",
+        type=str,
+        default="wikitext-2-raw-v1",
+        help="HuggingFace dataset config/subset (default: wikitext-2-raw-v1)",
     )
 
     return parser.parse_args()
