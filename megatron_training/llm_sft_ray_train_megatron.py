@@ -20,7 +20,7 @@ Default Configuration:
     - Tensor Parallelism (TP) = 2
     - Pipeline Parallelism (PP) = 2
     - Data Parallelism (DP) = num_workers / (TP * PP)
-    - Model: Qwen/Qwen2.5-7B (7B parameter model for production training)
+    - Model: Qwen/Qwen2.5-1.5B (1.5B parameter model for training)
     - Dataset: wikitext-2-raw-v1 from HuggingFace (dataset for tutorial)
 """
 
@@ -333,8 +333,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hf_model_path",
         type=str,
-        default="Qwen/Qwen2.5-7B",
-        help="HuggingFace model (default: Qwen/Qwen2.5-7B)",
+        default="Qwen/Qwen2.5-1.5B",
+        help="HuggingFace model (default: Qwen/Qwen2.5-1.5B)",
     )
     parser.add_argument(
         "--num_workers",
