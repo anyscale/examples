@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir \
     "hydra-core>1.3,<=1.3.2" \
     megatron-energon \
     datasets \
-    bitstring
+    bitstring \
+    filetype
 
 # Install NVIDIA packages - transformer_engine is the key dependency
 RUN pip install --no-cache-dir nvidia-modelopt
