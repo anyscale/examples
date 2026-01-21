@@ -30,6 +30,6 @@ anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
 
 **What this job does:**
 1. **Builds** a Docker image with Megatron-Bridge and dependencies (using `Dockerfile`).
-2. **Provisions** 8 GPUs (default: 1 node with 8xH100, tested this example working on 2 nodes with 4xL4 GPUs as well).
+2. **Provisions** 8 GPUs (Tested working with 1 node with 8xH100 and 2 nodes with 4xL4 GPUs).
 3. **Runs** the distributed training script `llm_sft_ray_train_megatron.py`.
 
