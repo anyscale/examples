@@ -26,11 +26,11 @@ cd examples/megatron_training
 anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
 ```
 
-**Note:** The `--env HF_TOKEN=$HF_TOKEN` flag passes your HuggingFace token to the job, which is required for accessing gated models like Qwen2.5-7B. Make sure you have `HF_TOKEN` set in your local environment.
+**Note:** The `--env HF_TOKEN=$HF_TOKEN` flag passes your HuggingFace token to the job. Make sure you have `HF_TOKEN` set in your local environment.
 
 **What this job does:**
 1. **Builds** a Docker image with Megatron-Bridge and dependencies (using `Dockerfile`).
-2. **Provisions** 8 GPUs (default: 2 nodes with 4xL4 GPUs each).
+2. **Provisions** 8 GPUs (default: 1 node with 8xH100).
 3. **Runs** the distributed training script `llm_sft_ray_train_megatron.py`.
 
 ---
@@ -51,7 +51,7 @@ Follow the [Build Farm guide](https://docs.anyscale.com/container-image/build-im
 2. Select the `megatron-bridge-ray-train` image you just built.
 3. Configure the **Compute**:
    - **Head Node:** 1x CPU node (e.g., `m5.xlarge`).
-   - **Worker Nodes:** Select the `Auto-select nodes` option. It will automatically use 4xL4 GPUs in your cloud. Make sure you have the available GPUs.
+   - **Worker Nodes:** 1 node with 8xH100 GPUs. Make sure you have the available GPUs.
 
 ### 3. Run the Training
 
