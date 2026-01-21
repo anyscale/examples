@@ -6,9 +6,7 @@ name: ray-train-megatron-bridge
 containerfile: ./Dockerfile  
 cloud: 
 
-
-# When empty, Anyscale will auto-select the instance types. You can also specify
-# minimum and maximum resources.
+# When empty, Anyscale will auto-select the instance types.
 compute_config:  
 
 working_dir: .
