@@ -17,20 +17,11 @@ ray.init()
 num_executors = 128
 executor_memory = "3GB"
 
-# Get the Ray JAR path for Spark classpath
-ray_jars_dir = os.path.join(os.path.dirname(ray.__file__), "jars")
-ray_dist_jar = os.path.join(ray_jars_dir, "ray_dist.jar")
-
 spark = raydp.init_spark(
     app_name="RayDP Example",
     num_executors=num_executors,
     executor_cores=1,
-    executor_memory=executor_memory,
-    configs={
-        "spark.jars": ray_dist_jar,
-        "spark.driver.extraClassPath": ray_jars_dir + "/*",
-        "spark.executor.extraClassPath": ray_jars_dir + "/*",
-    }
+    executor_memory=executor_memory
 )
 
 
