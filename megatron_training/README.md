@@ -23,8 +23,10 @@ git clone https://github.com/anyscale/examples.git
 cd examples/megatron_training
 
 # Submit the job
-anyscale job submit -f job.yaml
+anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
 ```
+
+**Note:** The `--env HF_TOKEN=$HF_TOKEN` flag passes your HuggingFace token to the job, which is required for accessing gated models like Qwen2.5-7B. Make sure you have `HF_TOKEN` set in your local environment.
 
 **What this job does:**
 1. **Builds** a Docker image with Megatron-Bridge and dependencies (using `Dockerfile`).
