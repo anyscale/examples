@@ -62,8 +62,8 @@ cd examples/megatron_training
 
 # 2. Set environment variables
 export RAY_TRAIN_V2_ENABLED=1
-export MEGATRON_BRIDGE_ROOT=/app/Megatron-Bridge
-export PYTHONPATH=$PYTHONPATH:/app/Megatron-Bridge/src:/app/Megatron-Bridge/3rdparty/Megatron-LM
+export MEGATRON_BRIDGE_ROOT=/home/ray/Megatron-Bridge
+export PYTHONPATH=$PYTHONPATH:/home/ray/Megatron-Bridge/src:/home/ray/Megatron-Bridge/3rdparty/Megatron-LM
 export PYTHONUNBUFFERED=1
 
 # Note: For private HuggingFace models, set HF_TOKEN:

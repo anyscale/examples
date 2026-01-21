@@ -13,18 +13,18 @@ compute_config:
 # compute_config:
 #   head_node:
 #     instance_type: m5.xlarge
-  worker_nodes:
-    - instance_type: 144CPU-1600GB-8xH100  # 4x L4 GPUs per node
-      min_nodes: 1
-      max_nodes: 1
+  # worker_nodes:
+  #   - instance_type: 144CPU-1600GB-8xH100  # 4x L4 GPUs per node
+  #     min_nodes: 1
+  #     max_nodes: 1
 
 working_dir: .
 
 env_vars:
   RAY_TRAIN_V2_ENABLED: "1"
   CUDA_DEVICE_MAX_CONNECTIONS: "1"  # Required for sequence parallelism
-  MEGATRON_BRIDGE_ROOT: "/app/Megatron-Bridge"
-  PYTHONPATH: "/app/Megatron-Bridge/src:/app/Megatron-Bridge/3rdparty/Megatron-LM"
+  MEGATRON_BRIDGE_ROOT: "/home/ray/Megatron-Bridge"
+  PYTHONPATH: "/home/ray/Megatron-Bridge/src:/home/ray/Megatron-Bridge/3rdparty/Megatron-LM"
   NCCL_DEBUG: "WARN"
   PYTHONUNBUFFERED: "1"
 
