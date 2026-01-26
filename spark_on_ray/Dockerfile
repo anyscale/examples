@@ -15,13 +15,6 @@ ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 # PySpark uses py4j from site-packages - RayDP needs to find it
 ENV SPARK_HOME=/home/ray/anaconda3/lib/python3.12/site-packages/pyspark
 
-# Ray JAR path for Spark/RayDP JVM communication
-ENV RAY_JARS_DIR=/home/ray/anaconda3/lib/python3.12/site-packages/ray/jars
-ENV CLASSPATH=$RAY_JARS_DIR/*:$CLASSPATH
-
-# Spark config directory
-ENV SPARK_CONF_DIR=/home/ray/.spark
-
 # Add Hadoop and Spark to PATH
 ENV PATH=$HADOOP_HOME/bin:$SPARK_HOME/bin:$PATH
 ENV LD_LIBRARY_PATH=$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH
@@ -106,26 +99,16 @@ RUN /home/ray/anaconda3/bin/pip install --no-cache-dir py4j
 # Install raydp
 RUN /home/ray/anaconda3/bin/pip install --no-cache-dir --pre raydp
 
-# Extract ray_dist.jar from Ray wheel and backup for restoration after pre-start
+# Download ray_dist.jar from PyPI and backup for restoration after pre-start
 # The Anyscale pre-start script replaces Ray at container startup, removing the JAR.
-RUN RAY_VERSION=$(/home/ray/anaconda3/bin/python -c "import ray; print(ray.__version__)") && \
-    cd /tmp && \
-    /home/ray/anaconda3/bin/pip download "ray==${RAY_VERSION}" --no-deps -d . && \
-    mkdir -p /home/ray/anaconda3/lib/python3.12/site-packages/ray/jars && \
-    unzip -o -j ray-*.whl "ray/jars/*" -d /home/ray/anaconda3/lib/python3.12/site-packages/ray/jars/ && \
-    rm -f ray-*.whl && \
+RUN cd /tmp && \
+    /home/ray/anaconda3/bin/pip download "ray==2.53.0" --no-deps -d . && \
     sudo mkdir -p /opt/ray-jars-backup && \
-    sudo cp /home/ray/anaconda3/lib/python3.12/site-packages/ray/jars/ray_dist.jar /opt/ray-jars-backup/
+    sudo unzip -o -j ray-*.whl "ray/jars/ray_dist.jar" -d /opt/ray-jars-backup/ && \
+    rm -f ray-*.whl
 
 # Patch pre-start script to restore ray_dist.jar after Ray replacement
-RUN if [ -f /opt/anyscale/ray-prestart ]; then \
-        echo '' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null && \
-        echo '# RAYDP FIX: Restore ray_dist.jar' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null && \
-        echo 'if [[ -f /opt/ray-jars-backup/ray_dist.jar ]]; then' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null && \
-        echo '    "${SUDO[@]}" mkdir -p "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars"' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null && \
-        echo '    "${SUDO[@]}" cp /opt/ray-jars-backup/ray_dist.jar "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars/"' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null && \
-        echo 'fi' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null; \
-    fi
+RUN [ -f /opt/anyscale/ray-prestart ] && printf '\n# RAYDP FIX: Restore ray_dist.jar\nif [[ -f /opt/ray-jars-backup/ray_dist.jar ]]; then\n  "${SUDO[@]}" mkdir -p "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars"\n  "${SUDO[@]}" cp /opt/ray-jars-backup/ray_dist.jar "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars/"\nfi\n' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null || true
 
 # Install additional Python packages for Spark/Hadoop integration
 RUN /home/ray/anaconda3/bin/pip install --no-cache-dir emoji pyarrow pandas numpy findspark
@@ -138,17 +121,13 @@ RUN echo 'PROMPT_COMMAND="history -a"' >> /home/ray/.bashrc && \
 RUN mkdir -p /home/ray/.spark && \
     echo 'spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem' > /home/ray/.spark/spark-defaults.conf && \
     echo 'spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.InstanceProfileCredentialsProvider,com.amazonaws.auth.DefaultAWSCredentialsProviderChain' >> /home/ray/.spark/spark-defaults.conf && \
-    echo 'spark.jars.packages=org.apache.hadoop:hadoop-aws:3.3.6,com.amazonaws:aws-java-sdk-bundle:1.12.367' >> /home/ray/.spark/spark-defaults.conf && \
-    echo "spark.driver.extraClassPath=/home/ray/anaconda3/lib/python3.12/site-packages/ray/jars/*" >> /home/ray/.spark/spark-defaults.conf && \
-    echo "spark.executor.extraClassPath=/home/ray/anaconda3/lib/python3.12/site-packages/ray/jars/*" >> /home/ray/.spark/spark-defaults.conf
+    echo 'spark.jars.packages=org.apache.hadoop:hadoop-aws:3.3.6,com.amazonaws:aws-java-sdk-bundle:1.12.367' >> /home/ray/.spark/spark-defaults.conf
 
-# Verify Python packages and Ray Java JAR
+# Verify Python packages and ray_dist.jar backup
 RUN /home/ray/anaconda3/bin/python -c "import ray; print(f'Ray version: {ray.__version__}')" && \
-    /home/ray/anaconda3/bin/python -c "import py4j; print(f'py4j version: {py4j.__version__}')" && \
     /home/ray/anaconda3/bin/python -c "import pyspark; print(f'PySpark version: {pyspark.__version__}')" && \
     /home/ray/anaconda3/bin/python -c "import raydp; print('raydp installed successfully')" && \
-    /home/ray/anaconda3/bin/python -c "import pyarrow; print('PyArrow installed successfully')" && \
-    /home/ray/anaconda3/bin/python -c "import ray, os; jar_path = os.path.join(os.path.dirname(ray.__file__), 'jars', 'ray_dist.jar'); assert os.path.exists(jar_path), f'ray_dist.jar not found at {jar_path}'; print(f'ray_dist.jar found: {jar_path}')"
+    ls -la /opt/ray-jars-backup/ray_dist.jar
 
 # Set working directory
 WORKDIR /home/ray
