@@ -2,7 +2,6 @@
 FROM anyscale/ray:2.53.0-slim-py312-cu128
 
 # Environment variables
-# ENV ANYSCALE_DISABLE_OPTIMIZED_RAY=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/home/ray
 ENV PATH=/home/ray/anaconda3/bin:$PATH
