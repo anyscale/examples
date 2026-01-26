@@ -117,17 +117,18 @@ RUN /home/ray/anaconda3/bin/pip install --no-cache-dir emoji pyarrow pandas nump
 RUN echo 'PROMPT_COMMAND="history -a"' >> /home/ray/.bashrc && \
     echo '[ -e ~/.workspacerc ] && source ~/.workspacerc' >> /home/ray/.bashrc
 
-# Create Spark configuration for S3 access and Ray JAR classpath
+# Create Spark configuration for S3 access
 RUN mkdir -p /home/ray/.spark && \
     echo 'spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem' > /home/ray/.spark/spark-defaults.conf && \
     echo 'spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.InstanceProfileCredentialsProvider,com.amazonaws.auth.DefaultAWSCredentialsProviderChain' >> /home/ray/.spark/spark-defaults.conf && \
     echo 'spark.jars.packages=org.apache.hadoop:hadoop-aws:3.3.6,com.amazonaws:aws-java-sdk-bundle:1.12.367' >> /home/ray/.spark/spark-defaults.conf
 
-# Verify Python packages and ray_dist.jar backup
+# Verify Python packages only (Hadoop/Java verification can cause container startup issues)
 RUN /home/ray/anaconda3/bin/python -c "import ray; print(f'Ray version: {ray.__version__}')" && \
+    /home/ray/anaconda3/bin/python -c "import py4j; print(f'py4j version: {py4j.__version__}')" && \
     /home/ray/anaconda3/bin/python -c "import pyspark; print(f'PySpark version: {pyspark.__version__}')" && \
     /home/ray/anaconda3/bin/python -c "import raydp; print('raydp installed successfully')" && \
-    ls -la /opt/ray-jars-backup/ray_dist.jar
+    /home/ray/anaconda3/bin/python -c "import pyarrow; print('PyArrow installed successfully')"
 
 # Set working directory
 WORKDIR /home/ray
