@@ -1,0 +1,84 @@
+# NeMo Curator Image Semantic Deduplication Job
+# View the docs: https://docs.anyscale.com/reference/job-api#jobconfig
+#
+# This job runs a two-phase pipeline:
+#   Phase 1: Convert parquet (URLs) → WebDataset tar files (using Ray Data, distributed)
+#   Phase 2: Run NeMo Curator image deduplication (CLIP embeddings → semantic dedup)
+#
+# The parquet → tar conversion uses Ray Data to distribute image downloads
+# across all nodes in the cluster, providing much better scalability than
+# single-node processing.
+
+name: nemo-curator-image-dedup
+
+# Build custom image with NeMo Curator CUDA dependencies
+containerfile: ./Dockerfile
+
+# Compute configuration with L4 GPU for CUDA-accelerated image processing
+# CPU-only head node + GPU worker nodes (using ignore_head_node=True in executors)
+compute_config:
+  head_node:
+    instance_type: m6i.2xlarge  # CPU-only, 8 vCPUs, 32GB RAM
+    # No tasks scheduled here - using RayDataExecutor/RayActorPoolExecutor with ignore_head_node=True
+    resources:
+      CPU: 0  # Prevent any task scheduling on head node
+  worker_nodes:
+    - instance_type: g5.12xlarge  # 4x A10G GPUs per worker, 48 vCPUs, 192GB RAM
+      min_nodes: 2
+      max_nodes: 2
+
+# Working directory - use the repo root (absolute) so Curator/ is included
+working_dir: /home/ray/default
+
+# Environment variables for job configuration
+# Override these when submitting to use your own data paths
+env_vars:
+  # Input parquet file with image URLs (TEXT and URL columns)
+  # LAION dataset (relative to working_dir)
+  INPUT_PARQUET: "examples/nemo_curator_semantic_dedup/laion_meta/laion_subset_10m.parquet"
+  MAX_ENTRIES: "10000"  # Limit for testing
+  
+  # Directory for WebDataset tar files (created from parquet)
+  # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
+  INPUT_WDS_DIR: "/mnt/cluster_storage/nemo_curator/webdataset"
+  
+  # Output directory for deduplicated images
+  OUTPUT_DIR: "/mnt/cluster_storage/nemo_curator/results"
+  
+  # Directory to store CLIP embeddings
+  EMBEDDINGS_DIR: "/mnt/cluster_storage/nemo_curator/embeddings"
+  
+  # Directory for duplicate removal parquets
+  REMOVAL_DIR: "/mnt/cluster_storage/nemo_curator/removal_ids"
+  
+  # Model weights directory (pre-downloaded in Docker image)
+  MODEL_DIR: "/home/ray/model_weights"
+  
+  # Processing settings (reduced to prevent OOM)
+  BATCH_SIZE: "4"
+  EMBEDDING_BATCH_SIZE: "8"
+  TAR_FILES_PER_PARTITION: "1"
+  ENTRIES_PER_TAR: "500"
+  
+  # Ray Data settings for parquet -> tar conversion
+  # Uses distributed processing across all nodes in the cluster
+  USE_RAY_DATA: "true"  # Set to "false" for single-node multiprocessing
+  # DOWNLOAD_CONCURRENCY: ""  # Auto-detected from cluster resources if not set
+  
+  SKIP_DOWNLOAD: "false"  # Set to "true" to skip parquet->tar and use existing tars
+  
+  # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
+  RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
+  
+  # Disable Python output buffering for real-time logs
+  PYTHONUNBUFFERED: "1"
+
+# The entrypoint script (-u for unbuffered output)
+entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.py
+
+# Don't retry on failure - easier to debug
+max_retries: 0
+
+# Kill after 4 hours to control costs (adjust based on dataset size)
+timeout_s: 14400
+
