@@ -1,8 +1,7 @@
 # Anyscale Container-Compatible Dockerfile
-FROM anyscale/ray:2.50.0-slim-py312-cu128
+FROM anyscale/ray:2.53.0-slim-py312-cu128
 
 # Environment variables
-ENV ANYSCALE_DISABLE_OPTIMIZED_RAY=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/home/ray
 ENV PATH=/home/ray/anaconda3/bin:$PATH
@@ -98,6 +97,17 @@ RUN /home/ray/anaconda3/bin/pip install --no-cache-dir py4j
 
 # Install raydp
 RUN /home/ray/anaconda3/bin/pip install --no-cache-dir --pre raydp
+
+# Download ray_dist.jar from PyPI and backup for restoration after pre-start
+# The Anyscale pre-start script replaces Ray at container startup, removing the JAR.
+RUN cd /tmp && \
+    /home/ray/anaconda3/bin/pip download "ray==2.53.0" --no-deps -d . && \
+    sudo mkdir -p /opt/ray-jars-backup && \
+    sudo unzip -o -j ray-*.whl "ray/jars/ray_dist.jar" -d /opt/ray-jars-backup/ && \
+    rm -f ray-*.whl
+
+# Patch pre-start script to restore ray_dist.jar after Ray replacement
+RUN [ -f /opt/anyscale/ray-prestart ] && printf '\n# RAYDP FIX: Restore ray_dist.jar\nif [[ -f /opt/ray-jars-backup/ray_dist.jar ]]; then\n  "${SUDO[@]}" mkdir -p "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars"\n  "${SUDO[@]}" cp /opt/ray-jars-backup/ray_dist.jar "${ANYSCALE_RAY_SITE_PKG_DIR}/ray/jars/"\nfi\n' | sudo tee -a /opt/anyscale/ray-prestart > /dev/null || true
 
 # Install additional Python packages for Spark/Hadoop integration
 RUN /home/ray/anaconda3/bin/pip install --no-cache-dir emoji pyarrow pandas numpy findspark
