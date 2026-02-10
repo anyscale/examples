@@ -33,10 +33,14 @@ working_dir: /home/ray/default
 # Environment variables for job configuration
 # Override these when submitting to use your own data paths
 env_vars:
-  # Input parquet file with image URLs (TEXT and URL columns)
-  # LAION dataset (relative to working_dir)
-  INPUT_PARQUET: "examples/nemo_curator_semantic_dedup/laion_meta/laion_subset_10m.parquet"
-  MAX_ENTRIES: "10000"  # Limit for testing
+  # Input parquet files with image URLs (url and caption columns)
+  # Read directly from HuggingFace
+  INPUT_PARQUET: "hf://datasets/laion/relaion400m/"
+  MAX_ENTRIES: "10000"
+  
+  # HuggingFace token for gated datasets
+  # Set via: anyscale job submit --env-var HF_TOKEN=<your-token> ...
+  HF_TOKEN: ""
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
@@ -64,7 +68,6 @@ env_vars:
   # Uses ray.data.expressions.download() for distributed downloads
   # DOWNLOAD_CONCURRENCY: ""  # Auto-detected from cluster resources if not set
   
-  SKIP_DOWNLOAD: "false"  # Set to "true" to skip parquet->tar and use existing tars
   
   # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
   RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
@@ -78,6 +81,7 @@ entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.p
 # Don't retry on failure - easier to debug
 max_retries: 0
 
-# Kill after 4 hours to control costs (adjust based on dataset size)
-timeout_s: 14400
+# Kill after 48 hours for full dataset (adjust based on dataset size)
+# Full relaion400m (~361M images) will take many hours
+timeout_s: 172800
 
