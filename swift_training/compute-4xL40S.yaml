@@ -1,4 +1,0 @@
-cloud: anyscale-v2-cloud-us-east-1
-head_node:
-  instance_type: g6e.12xlarge
-worker_nodes: []
