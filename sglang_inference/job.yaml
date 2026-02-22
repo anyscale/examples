@@ -1,0 +1,36 @@
+# Anyscale Job: SGLang Offline (Batch) Inference
+#
+# Configuration: TP=4, PP=2 across 2 nodes (4 GPUs per node)
+#
+# Submit (small model, fast):
+#   anyscale job submit -f job.yaml
+#
+# Submit (large model):
+#   anyscale job submit -f job.yaml --env MODEL_PATH=Qwen/Qwen3-30B-A3B-Instruct-2507
+
+name: sglang-offline-inference
+
+containerfile: ./Dockerfile
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge        # CPU-only head
+  worker_nodes:
+    - instance_type: g5.12xlarge     # 4x A10G
+      min_nodes: 4
+      max_nodes: 4
+
+env_vars:
+  MODEL_PATH: "Qwen/Qwen3-1.7B"
+  TP_SIZE: "4"
+  PP_SIZE: "2"
+  NUM_NODES: "2"
+  # Ray normally sets CUDA_VISIBLE_DEVICES for each worker process.
+  # Disable this because SGLang assumes CUDA_VISIBLE_DEVICES lists all GPUs.
+  RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "1"
+
+working_dir: .
+
+entrypoint: python driver_offline.py
+
+max_retries: 0
