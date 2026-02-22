@@ -49,7 +49,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/ray/.local/bin:${PATH}"
 
 RUN uv pip install --system \
-    "sglang[all]==0.5.8" \
+    "sglang[all] @ git+https://github.com/xyuzh/sglang.git@feature/ray-actor-scheduler#subdirectory=python" \
     numpy \
     transformers \
     accelerate \
@@ -57,12 +57,5 @@ RUN uv pip install --system \
     requests \
     httpx
 
-RUN uv pip install --system "sgl-kernel==0.3.21"
-
-# =============================================================================
-# Verification
-# =============================================================================
-RUN nvcc --version && \
-    python -c "import sglang; print(f'SGLang version: {sglang.__version__}')"
 
 WORKDIR /home/ray/default
