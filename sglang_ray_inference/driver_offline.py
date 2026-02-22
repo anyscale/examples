@@ -1,14 +1,15 @@
 """
-Offline (batch) inference with SGLang on Ray.
+Offline (Batch) Inference with SGLang on Ray
 
-Wraps sglang.Engine in a Ray actor for multi-node batch generation.
-The driver (head node) needs no GPU — sglang is imported only inside the actor.
+Runs sglang.Engine inside a Ray actor for batch generation.
+The head node needs no GPU — sglang is imported only inside the actor.
 
 Usage:
-    python driver_offline.py --model-path Qwen/Qwen3-1.7B --tp-size 4 --nnodes 1
+    python driver_offline.py --model-path Qwen/Qwen3-1.7B --tp-size 8 --nnodes 2
 """
 
 import argparse
+import sys
 import time
 
 import ray
@@ -16,47 +17,53 @@ from ray.util.placement_group import placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 
-@ray.remote
-class EngineActor:
-    """Thin wrapper that creates an sglang.Engine inside a Ray actor."""
-
-    def __init__(self, **kwargs):
-        from sglang import Engine
-
-        self.engine = Engine(**kwargs)
-
-    def ready(self):
-        return True
-
-    def generate(self, prompts, sampling_params):
-        return [
-            self.engine.generate(prompt=p, sampling_params=sampling_params)
-            for p in prompts
-        ]
-
-    def shutdown(self):
-        self.engine.shutdown()
-
-
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="SGLang offline inference via Ray")
     parser.add_argument("--model-path", type=str, default="Qwen/Qwen3-1.7B")
     parser.add_argument("--tp-size", type=int, default=4)
     parser.add_argument("--pp-size", type=int, default=1)
-    parser.add_argument("--nnodes", type=int, default=1)
+    parser.add_argument("--nnodes", type=int, default=2)
     parser.add_argument("--port", type=int, default=30000)
     args = parser.parse_args()
 
-    gpus_per_node = (args.tp_size * args.pp_size) // args.nnodes
+    world_size = args.tp_size * args.pp_size
+    gpus_per_node = world_size // args.nnodes
 
-    # Reserve GPUs across nodes
+    # --- Ray init ---
+    print(f"Model={args.model_path}  TP={args.tp_size}  PP={args.pp_size}  "
+          f"nodes={args.nnodes}  GPUs/node={gpus_per_node}")
+
+    # --- Placement group: one bundle per node ---
+    strategy = "STRICT_PACK" if args.nnodes == 1 else "STRICT_SPREAD"
     pg = placement_group(
+        name="engine_group",
         bundles=[{"CPU": 1, "GPU": gpus_per_node}] * args.nnodes,
-        strategy="STRICT_PACK" if args.nnodes == 1 else "STRICT_SPREAD",
+        strategy=strategy,
     )
     ray.get(pg.ready())
+    print("Placement group ready.")
 
-    # Start engine actor on the first bundle
+    # --- Engine actor (sglang imported inside, not on head node) ---
+    @ray.remote
+    class EngineActor:
+        def __init__(self, **kwargs):
+            from sglang import Engine
+            self.engine = Engine(**kwargs)
+
+        def is_ready(self):
+            return True
+
+        def generate(self, prompts, sampling_params):
+            return [
+                {"prompt": p, "text": self.engine.generate(prompt=p, sampling_params=sampling_params)["text"]}
+                for p in prompts
+            ]
+
+        def shutdown(self):
+            if self.engine:
+                self.engine.shutdown()
+                self.engine = None
+
     engine = EngineActor.options(
         num_cpus=1,
         num_gpus=0,
@@ -72,10 +79,11 @@ def main():
         use_ray=True,
     )
 
-    ray.get(engine.ready.remote())
-    print("Engine ready.")
+    print("Waiting for engine...")
+    ray.get(engine.is_ready.remote())
+    print("Engine ready.\n")
 
-    # Batch generate
+    # --- Generate ---
     prompts = [
         "The capital of France is",
         "Explain quantum computing in simple terms:",
@@ -84,19 +92,19 @@ def main():
     ]
 
     t0 = time.time()
-    results = ray.get(
-        engine.generate.remote(prompts, {"max_new_tokens": 64, "temperature": 0.0})
-    )
+    results = ray.get(engine.generate.remote(prompts, {"max_new_tokens": 64, "temperature": 0.0}))
     print(f"Generated {len(results)} responses in {time.time() - t0:.2f}s\n")
 
-    for prompt, result in zip(prompts, results):
-        print(f"Prompt:   {prompt}")
-        print(f"Response: {result['text'][:200]}\n")
+    for r in results:
+        print(f"Prompt:    {r['prompt']}")
+        print(f"Response:  {r['text'][:200]}")
+        print("-" * 60)
 
-    # Cleanup
+    # --- Cleanup ---
     ray.get(engine.shutdown.remote())
     ray.util.remove_placement_group(pg)
+    print("\nDone.")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -22,13 +22,15 @@ working_dir: .
 entrypoint: |
   set -e
 
-  # Run offline inference
-  echo "Running offline inference..." 
   echo "=========================================="
+  echo "SGLang Offline Inference"
+  echo "=========================================="
+
   python driver_offline.py \
     --model-path Qwen/Qwen3-1.7B --tp-size 8 --nnodes 2
 
 env_vars:
+  NCCL_DEBUG: INFO
   NCCL_IB_DISABLE: "0"
   NCCL_NET_GDR_LEVEL: "2"
   RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "1"
