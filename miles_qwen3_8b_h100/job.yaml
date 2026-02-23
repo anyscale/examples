@@ -1,0 +1,33 @@
+# Anyscale job config: Miles Qwen3-8B GRPO training on H100
+# Single node × 8x H100-80GB
+#
+# Layout:
+#   Head node (m5.2xlarge): driver only, no GPUs
+#   Worker 0 (8x H100):  [GPU 0-3: Training TP=2 DP=2] [GPU 4-7: Rollout (4 engines)]
+#
+# Submit with:
+#   cd examples/anyscale_qwen3_8b_h100
+#   anyscale job submit -f job.yaml
+cloud: anyscale-v2-cloud-us-east-1
+
+name: miles-qwen3-8b-grpo-h100
+
+containerfile: ./Dockerfile.anyscale
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge       # CPU-only, runs driver script
+  worker_nodes:
+    - instance_type: p5.48xlarge    # 8x H100-80GB, 192 vCPU, 2048 GB RAM
+      min_nodes: 1
+      max_nodes: 1
+      advanced_instance_config:
+        CapacityReservationSpecification:
+          CapacityReservationTarget:
+            CapacityReservationId: cr-0dfe1157d299ae5fc
+
+working_dir: .
+
+entrypoint: bash entrypoint.sh
+
+max_retries: 0
