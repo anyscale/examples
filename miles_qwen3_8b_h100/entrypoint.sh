@@ -83,7 +83,7 @@ ROLLOUT_ARGS=(
    --balance-data
    --rm-type dapo
    --reward-key score
-   --num-rollout 3000
+   --num-rollout 5
    --rollout-batch-size 32
    --n-samples-per-prompt 8
    --rollout-max-response-len 8192
