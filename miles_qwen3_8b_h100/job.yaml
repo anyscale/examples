@@ -15,9 +15,17 @@ containerfile: ./Dockerfile
 
 compute_config:
   head_node:
-    instance_type: m5.2xlarge
+    required_resources:
+      CPU: 8
+      memory: 32Gi
   worker_nodes:
-    - instance_type: p5.48xlarge    # 8x H100-80GB
+    - name: h100-workers
+      required_resources:
+        CPU: 96
+        memory: 512Gi
+        GPU: 8
+      required_labels:
+        ray.io/accelerator-type: H100
       min_nodes: 1
       max_nodes: 1
 
