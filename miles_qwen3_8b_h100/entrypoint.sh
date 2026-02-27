@@ -13,8 +13,6 @@ set -ex
 export PYTHONBUFFERED=16
 STORAGE=/mnt/cluster_storage
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-
 # Qwen3-8B model architecture args (from scripts/models/qwen3-8B.sh)
 MODEL_ARGS=(
    --swiglu
@@ -46,20 +44,12 @@ huggingface-cli download --repo-type dataset zhuzilin/dapo-math-17k --local-dir 
 # ======================== Step 2: Convert HF weights to torch_dist ========================
 
 if [ ! -d "${STORAGE}/Qwen3-8B_torch_dist/iter_0000000" ]; then
-  echo "=== Converting weights (HF -> torch_dist) on GPU worker ==="
-  CONVERT_ENV_JSON='{
-    "env_vars": {
-      "PYTHONPATH": "/root/Megatron-LM/"
-    }
-  }'
-  ray job submit --address="http://127.0.0.1:8265" \
-    --runtime-env-json="${CONVERT_ENV_JSON}" \
-    --entrypoint-num-gpus 1 \
-    -- python3 /tmp/miles/tools/convert_hf_to_torch_dist.py \
-      ${MODEL_ARGS[@]} \
-      --no-gradient-accumulation-fusion \
-      --hf-checkpoint ${STORAGE}/Qwen3-8B \
-      --save ${STORAGE}/Qwen3-8B_torch_dist
+  echo "=== Converting weights (HF -> torch_dist) ==="
+  python /tmp/miles/tools/convert_hf_to_torch_dist.py \
+    ${MODEL_ARGS[@]} \
+    --no-gradient-accumulation-fusion \
+    --hf-checkpoint ${STORAGE}/Qwen3-8B \
+    --save ${STORAGE}/Qwen3-8B_torch_dist
 else
   echo "=== Converted weights already exist, skipping ==="
 fi
@@ -142,22 +132,11 @@ MISC_ARGS=(
    --tensorboard-dir ${STORAGE}/tensorboard_logs
 )
 
-RUNTIME_ENV_JSON='{
-  "env_vars": {
-    "PYTHONPATH": "/root/Megatron-LM/",
-    "CUDA_DEVICE_MAX_CONNECTIONS": "1",
-    "TENSORBOARD_DIR": "/mnt/cluster_storage/tensorboard_logs"
-  }
-}'
-
-echo "=== Submitting training job ==="
-ray job submit --address="http://127.0.0.1:8265" \
-   --runtime-env-json="${RUNTIME_ENV_JSON}" \
-   --entrypoint-num-gpus 1 \
-   -- python3 /tmp/miles/train_async.py \
+echo "=== Starting training ==="
+python /tmp/miles/train_async.py \
    --actor-num-nodes 1 \
    --actor-num-gpus-per-node 4 \
-   --rollout-num-gpus 3 \
+   --rollout-num-gpus 4 \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
    ${ROLLOUT_ARGS[@]} \

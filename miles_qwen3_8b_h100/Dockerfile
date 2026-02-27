@@ -5,13 +5,12 @@ ARG MEGATRON_COMMIT=3714d81d418c9f1bca4594fc35f9e8289f652862
 ARG SGLANG_COMMIT=24c91001cf99ba642be791e099d358f4dfe955f5
 ARG MILES_REF=main
 
-# Anyscale base image runs as non-root; switch to root for system installs.
-USER root
-WORKDIR /root
+# Anyscale base image runs as non-root; use sudo for system installs.
+WORKDIR /home/ray
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends git rsync dnsutils nvtop && \
-    rm -rf /var/lib/apt/lists/*
+RUN sudo apt-get update && \
+    sudo apt-get install -y --no-install-recommends git rsync dnsutils nvtop && \
+    sudo rm -rf /var/lib/apt/lists/*
 
 # Keep pip tooling current and pin numpy to 1.x for Megatron compatibility.
 RUN python -m pip install --upgrade pip setuptools wheel && \
@@ -37,14 +36,14 @@ RUN git clone --filter=blob:none https://github.com/NVIDIA/apex.git /tmp/apex &&
 
 # Install SGLang from source.  sgl_kernel comes from PyPI, pre-compiled
 # for torch 2.9.x — no need to rebuild from source.
-RUN git clone https://github.com/sgl-project/sglang.git /root/sglang && \
-    cd /root/sglang && \
+RUN git clone https://github.com/sgl-project/sglang.git /home/ray/sglang && \
+    cd /home/ray/sglang && \
     git checkout ${SGLANG_COMMIT} && \
     python -m pip install -e "python[all]"
 
 # Install Megatron-LM from source.
-RUN git clone --recursive https://github.com/NVIDIA/Megatron-LM.git /root/Megatron-LM && \
-    cd /root/Megatron-LM && \
+RUN git clone --recursive https://github.com/NVIDIA/Megatron-LM.git /home/ray/Megatron-LM && \
+    cd /home/ray/Megatron-LM && \
     git checkout ${MEGATRON_COMMIT} && \
     python -m pip install -e .
 
@@ -54,7 +53,7 @@ RUN git clone https://github.com/radixark/miles.git /tmp/miles && \
     git checkout ${MILES_REF}
 
 # Apply SGLang patch.
-RUN cd /root/sglang && \
+RUN cd /home/ray/sglang && \
     cp /tmp/miles/docker/patch/${PATCH_VERSION}/sglang.patch ./sglang.patch && \
     git update-index --refresh && \
     git apply sglang.patch --3way && \
@@ -65,7 +64,7 @@ RUN cd /root/sglang && \
     rm sglang.patch
 
 # Apply Megatron-LM patch.
-RUN cd /root/Megatron-LM && \
+RUN cd /home/ray/Megatron-LM && \
     cp /tmp/miles/docker/patch/${PATCH_VERSION}/megatron.patch ./megatron.patch && \
     git update-index --refresh && \
     git apply megatron.patch --3way && \
@@ -114,5 +113,7 @@ RUN python -c "\
 import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}'); \
 assert torch.__version__.startswith('2.9'), f'Expected 2.9.x, got {torch.__version__}'; \
 from flash_attn import flash_attn_func; print('flash-attn OK')"
+
+ENV PYTHONPATH=/home/ray/Megatron-LM:$PYTHONPATH
 
 WORKDIR /tmp/miles
