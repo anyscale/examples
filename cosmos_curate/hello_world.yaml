@@ -1,8 +1,8 @@
 name: custom-image-cosmos
-image_uri: 367974485317.dkr.ecr.us-west-2.amazonaws.com/wagner-west-2:15 
+image_uri: 367974485317.dkr.ecr.us-west-2.amazonaws.com/anyscale-cosmos-curate:3
 ray_version: 2.48.0
 entrypoint: >
-  python all_nodes_init_script.py
+  python all_nodes_init_script.py gpt2
   && pixi run python -m cosmos_curate.pipelines.examples.hello_world_pipeline
 py_modules: ["/Users/davidwagner/git/davidwagnerkc/cosmos-curate"]
 compute_config:
@@ -13,13 +13,10 @@ compute_config:
       GPU: 0
     flags: {}
   worker_nodes:
-    - instance_type: g6e.2xlarge
+    - instance_type: g4dn.xlarge
       flags: {}
       min_nodes: 1
       max_nodes: 1
       market_type: ON_DEMAND
 working_dir: "."
 max_retries: 0
-env_vars:
-    PIXI_PROJECT_MANIFEST: /opt/cosmos-curate/pixi.toml
-    COSMOS_S3_PROFILE_PATH: /mnt/user_storage/s3_creds_file
