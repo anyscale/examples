@@ -135,6 +135,7 @@ ENV HF_HOME="${DEFAULT_WORKSPACE_LOC}/weights/hf_home/" \
 # Set up pixi environments
 COPY pixi.toml pixi.lock /opt/cosmos-curate/
 
+
 # ==========================================================================
 # Anyscale compatibility layer
 # Ref: https://docs.anyscale.com/container-image/image-requirement.md
@@ -206,6 +207,9 @@ RUN set -euxo pipefail \
 
 RUN sudo mkdir -p /cosmos_curate/config /config /anyscale/init \
     && sudo chown -R ray:ray /cosmos_curate /config /anyscale/init
+
+# Model registry needed by cosmos-curate at import time
+COPY cosmos_curate/configs/all_models.json /opt/cosmos-curate/cosmos_curate/configs/all_models.json
 
 ENV PATH=/opt/cosmos-curate/.pixi/envs/default/bin:$PATH \
     HOME=/home/ray \
