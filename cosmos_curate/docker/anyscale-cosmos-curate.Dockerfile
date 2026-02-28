@@ -178,7 +178,7 @@ USER ray
 # layer. Since the cuml environment is large and needs non-overlapping RAPIDS packages, we install it separately.
 RUN cd /opt/cosmos-curate && \
     export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e default -e model-download -e transformers -e unified --frozen && \
+    pixi install -e default -e legacy-transformers -e model-download -e transformers -e unified --frozen && \
     pixi clean cache -y
 
 # ---------- Anyscale Python packages ----------
