@@ -133,7 +133,7 @@ MISC_ARGS=(
 )
 
 echo "=== Starting training ==="
-python /tmp/miles/train_async.py \
+python train_remote.py \
    --actor-num-nodes 1 \
    --actor-num-gpus-per-node 4 \
    --rollout-num-gpus 4 \
