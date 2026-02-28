@@ -193,6 +193,12 @@ RUN set -euxo pipefail \
         terminado \
     && pixi run -e default pip install --no-cache-dir jupyterlab
 
+RUN cd /tmp \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip \
+    && unzip -q awscliv2.zip \
+    && sudo ./aws/install \
+    && rm -rf aws awscliv2.zip
+
 # Workspace shell setup (Anyscale workspace requirement).
 RUN set -euxo pipefail \
     && echo 'PROMPT_COMMAND="history -a"' >> /home/ray/.bashrc \
