@@ -44,8 +44,8 @@ huggingface-cli download --repo-type dataset zhuzilin/dapo-math-17k --local-dir 
 # ======================== Step 2: Convert HF weights to torch_dist ========================
 
 if [ ! -d "${STORAGE}/Qwen3-8B_torch_dist/iter_0000000" ]; then
-  echo "=== Converting weights (HF -> torch_dist) ==="
-  python /tmp/miles/tools/convert_hf_to_torch_dist.py \
+  echo "=== Converting weights (HF -> torch_dist) on GPU worker ==="
+  python convert_weights_remote.py \
     ${MODEL_ARGS[@]} \
     --no-gradient-accumulation-fusion \
     --hf-checkpoint ${STORAGE}/Qwen3-8B \
