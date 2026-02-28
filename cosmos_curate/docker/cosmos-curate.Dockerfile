@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.3
 # Dockerfile template for cosmos-curate
 #
 # The dockerfile is templated so that we can provide different conda env information.
@@ -133,44 +132,16 @@ ENV DEFAULT_WORKSPACE_LOC="/config/default_workspace"
 ENV HF_HOME="${DEFAULT_WORKSPACE_LOC}/weights/hf_home/" \
     LAION_CACHE_HOME="${DEFAULT_WORKSPACE_LOC}/weights/laion_cache/"
 
-# Set permissive umask so all files in /opt/cosmos-curate are world-readable/writable.
-# This avoids expensive recursive chown in downstream Dockerfiles.
-RUN umask 0000 && mkdir -p /opt/cosmos-curate
-
 # Set up pixi environments
-COPY --chmod=666 pixi.toml pixi.lock /opt/cosmos-curate/
-
-# Install each pixi environment in a separate layer to reduce individual layer sizes
-# and improve pull/streaming performance. Cache mounts keep rattler cache outside layers.
-RUN --mount=type=cache,target=/root/.cache/rattler \
-    umask 0000 && cd /opt/cosmos-curate && \
+COPY pixi.toml pixi.lock /opt/cosmos-curate/
+# If we install all the environments in a single layer, it's over 20GB and will cause slurm/NVCF to timeout pulling the
+# layer. Since the cuml environment is large and needs non-overlapping RAPIDS packages, we install it separately.
+RUN cd /opt/cosmos-curate && \
     export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e default --frozen
+    pixi install -e default -e model-download -e transformers -e unified --frozen && \
+    pixi clean cache -y
 
-RUN --mount=type=cache,target=/root/.cache/rattler \
-    umask 0000 && cd /opt/cosmos-curate && \
-    export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e legacy-transformers --frozen
-
-RUN --mount=type=cache,target=/root/.cache/rattler \
-    umask 0000 && cd /opt/cosmos-curate && \
-    export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e model-download --frozen
-
-RUN --mount=type=cache,target=/root/.cache/rattler \
-    umask 0000 && cd /opt/cosmos-curate && \
-    export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e transformers --frozen
-
-RUN --mount=type=cache,target=/root/.cache/rattler \
-    umask 0000 && cd /opt/cosmos-curate && \
-    export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e unified --frozen
-
-# RUN --mount=type=cache,target=/root/.cache/rattler \
-#     umask 0000 && cd /opt/cosmos-curate && \
-#     export CONDA_OVERRIDE_CUDA=12.9.1 && \
-#     pixi install -e cuml --frozen
+# Install the cuml environment separately if requested.
 
 
 # Run any hacky post-install script for each environment
