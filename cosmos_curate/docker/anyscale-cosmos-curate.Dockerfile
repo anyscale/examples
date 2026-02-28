@@ -208,7 +208,8 @@ RUN sudo mkdir -p /cosmos_curate/config /config /anyscale/init \
     && sudo chown -R ray:ray /cosmos_curate /config /anyscale/init
 
 ENV PATH=/opt/cosmos-curate/.pixi/envs/default/bin:$PATH \
-    HOME=/home/ray
+    HOME=/home/ray \
+    PIXI_PROJECT_MANIFEST=/opt/cosmos-curate/pixi.toml
 WORKDIR /home/ray
 
 ENTRYPOINT []
