@@ -21,8 +21,8 @@ compute_config:
   worker_nodes:
     - name: h100-workers
       required_resources:
-        CPU: 96
-        memory: 512Gi
+        CPU: 192
+        memory: 2048Gi
         GPU: 8
       required_labels:
         ray.io/accelerator-type: H100
