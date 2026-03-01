@@ -1,18 +1,26 @@
 # Cosmos Curate
 
-This repository has example Anyscale Jobs for the `cosmos-curate` Hello World & Reference Video Pipelines.
+This repository is an example of running NVIDIA [cosmos-curate](https://github.com/nvidia-cosmos/cosmos-curate) pipelines on Anyscale. Examples include the Hello World and Reference Video Pipelines.
 
-To run these jobs on Anyscale we will run:
+## Prerequisites
+
+- An [Anyscale account](https://console.anyscale.com/) with the `anyscale` CLI installed (`pip install anyscale`)
+- AWS account with ECR access (for pushing the Docker image) and S3 permissions on the nodes
+- A local clone (or symlink, e.g. `ln -sf /path/to/cosmos-curate ./cosmos-curate`) of the [`cosmos-curate`](https://github.com/NVIDIA/cosmos-curate) repo (see [Runtime Environment](#3-runtime-environment) for details)
+
+Your directory layout should look like:
 ```
-anyscale job submit -f hello_world.yaml
+cosmos_curate/          # this directory
+├── cosmos-curate/      # clone of the cosmos-curate repo
+├── docker/
+├── hello_world.yaml
+├── reference_pipeline.yaml
+├── all_nodes_init_script.py
+├── cosmos_curate_tokens.yaml
+└── ...
 ```
 
-or:
-```
-anyscale job submit -f reference_video_pipeline.yaml
-```
-
-First we need a few things:
+## Setup
 
 ### 1. Docker image
 
@@ -43,7 +51,22 @@ huggingface:
 
 If you need to authenticate in a different way need to ensure this file is written and distributed to all nodes at the expected filepath.
 
-### Cosmos Curate on Anyscale 
+## Run
+
+The Hello World Pipeline runs in a few minutes and only requires 1 T4 GPU node. 
+
+```
+anyscale job submit -f hello_world.yaml
+```
+
+The Reference Video Pipeline will take ~45m with the default setup of 4 L40S GPUs on ~3h of video. 
+```
+anyscale job submit -f reference_pipeline.yaml
+```
+
+## How It Works
+
+### Cosmos Curate on Anyscale
 
 Let's breakdown the the `reference_video_pipeline.yaml` to get a sense for how the setup comes together, starting from defining the hardware we want to use up to the user code defining the pipeline.
 
@@ -95,7 +118,7 @@ When the job runs it will acquire all the nodes and use our image which handles 
 
 Anyscale will ship your `working_dir` which should be the `examples/cosmos-curate/` directory. This allows us to access files for setting up the nodes, addition python scripts to run, python packages, etc. This allows us to generally update code running on the image without requiring rebuild.
 
-`py_modules` grabs local copy of `cosmos-curate` and makes it available vs. leaning on being in the `/opt/cosmos-curate/cosmos_curate/` directory for all execution required in the Docker image.
+`py_modules` packages a local clone of the `cosmos-curate` repo (the `./cosmos-curate` directory listed in [Prerequisites](#prerequisites)) and ships it to all nodes at runtime. This lets you iterate on `cosmos-curate` source code without rebuilding the Docker image, overriding the copy baked into the image at `/opt/cosmos-curate/cosmos_curate/`.
 
 ```
 py_modules: ["./cosmos-curate"]
@@ -114,9 +137,14 @@ entrypoint: >
   --output-clip-path "/mnt/user_storage/output_clips/"
 ```
 
+#### python all_nodes_init_script.py
+
 The `all_nodes_init_script.py` handles a few initialization steps for the cluster:
+
 1. Use `write_s3_creds_file.sh` to put an S3 credential file where it is expected on each node.
 2. Copy our local `cosmos_curate_tokens.yaml` to the expected location on each not for API and model registry auth.
 3. Use the `model-download` `pixi` env to run `python -m cosmos_curate.core.managers.model_cli download` and pass the list of models needed for the pipeline we are going to run (if you do not specify the models it will download all models which takes a while and 500GB+ of space).
+
+#### python -m cosmos_curate.pipelines.video.run_pipeline split
 
 Now the actual pipelne uses the default `pixi` env to run `python -m cosmos_curate.pipelines.video.run_pipeline split`. There are many cli options you can pass to the pipelines `cosmos-curate` provides, but here we just set the minimal input and output paths and accept the rest as default. 
