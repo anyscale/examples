@@ -5,7 +5,7 @@ entrypoint: >
   python all_nodes_init_script.py qwen2.5_vl,transnetv2,internvideo2_mm,bert
   && pixi run python -m cosmos_curate.pipelines.video.run_pipeline split
   --input-video-path "s3://ray-example-data/videos/Hollywood2-actions-videos/Hollywood2/AVIClips/"
-  --output-clip-path "/mnt/user_storage/output_clips_4x1/"
+  --output-clip-path "/mnt/user_storage/output_clips/"
 py_modules: ["./cosmos-curate"]
 compute_config:
   head_node:
