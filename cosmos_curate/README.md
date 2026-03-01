@@ -1,16 +1,6 @@
 # Cosmos Curate
 
-* awscli in image
-* remove `COSMOS_S3_PROFILE_PATH` use default
-* bake in PIXI for workspaces
-* 1 layer for pixi again?
 * can we eliminate code from being in the image at all for clarity?
-* validate py_modules vs. baked in vs. entrypoint pixi run ref
-
-* ideally you can easily configure the (1) models downloaded (2) pipeline you run with options. entrypoint for (2), but (1) is hidden in script in a script
-* ideally just a local cred file would be sufficient - just broadcast to nodes
-* ideally do not think about s3 at all
-* model download output should stream to stdout
 
 This repository has example Anyscale Jobs for the `cosmos-curate` Hello World & Reference Video Pipelines.
 
