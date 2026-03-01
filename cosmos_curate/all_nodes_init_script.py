@@ -5,15 +5,9 @@ from time import perf_counter as pc
 
 SCRIPT = """
 set -e
-echo '---------------------------------------'
-echo '---------------------------------------'
-pwd
-ls -hlart
 bash write_s3_creds_file.sh
 cp cosmos_curate_tokens.yaml /cosmos_curate/config/cosmos_curate.yaml
 pixi run -e model-download python -m cosmos_curate.core.managers.model_cli download --models {models}
-echo '---------------------------------------'
-echo '---------------------------------------'
 """
 
 @ray.remote(num_cpus=0)
