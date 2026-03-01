@@ -135,6 +135,7 @@ ENV HF_HOME="${DEFAULT_WORKSPACE_LOC}/weights/hf_home/" \
 # Set up pixi environments
 COPY pixi.toml pixi.lock /opt/cosmos-curate/
 
+
 # ==========================================================================
 # Anyscale compatibility layer
 # Ref: https://docs.anyscale.com/container-image/image-requirement.md
@@ -177,7 +178,7 @@ USER ray
 # layer. Since the cuml environment is large and needs non-overlapping RAPIDS packages, we install it separately.
 RUN cd /opt/cosmos-curate && \
     export CONDA_OVERRIDE_CUDA=12.9.1 && \
-    pixi install -e default -e model-download -e transformers -e unified --frozen && \
+    pixi install -e default -e legacy-transformers -e model-download -e transformers -e unified --frozen && \
     pixi clean cache -y
 
 # ---------- Anyscale Python packages ----------
@@ -211,6 +212,9 @@ RUN set -euxo pipefail \
 
 RUN sudo mkdir -p /cosmos_curate/config /config /anyscale/init \
     && sudo chown -R ray:ray /cosmos_curate /config /anyscale/init
+
+# Model registry needed by cosmos-curate at import time
+COPY cosmos_curate/configs/all_models.json /opt/cosmos-curate/cosmos_curate/configs/all_models.json
 
 ENV PATH=/opt/cosmos-curate/.pixi/envs/default/bin:$PATH \
     HOME=/home/ray \

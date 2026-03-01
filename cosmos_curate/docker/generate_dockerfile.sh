@@ -1,4 +1,4 @@
-# drop cuml,legacy-transformers from default envs built
+# drop cuml from default envs built
 CWD=$(pwd)
 REPO_ROOT=$HOME/git/cosmos-curate
 cd $REPO_ROOT
@@ -7,5 +7,5 @@ cosmos-curate image build \
   --image-name cosmos-curate \
   --image-tag 1 \
   --dry-run \
-  --envs transformers,unified \
+  --envs legacy-transformers,transformers,unified \
   --dockerfile-output-path "${CWD}/cosmos-curate.Dockerfile"
