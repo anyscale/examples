@@ -199,6 +199,11 @@ RUN cd /tmp \
     && sudo ./aws/install \
     && rm -rf aws awscliv2.zip
 
+# ---------- cosmos-curate source code ----------
+COPY --chown=ray:ray cosmos_curate /opt/cosmos-curate/cosmos_curate
+COPY --chown=ray:ray tests /opt/cosmos-curate/tests
+COPY --chown=ray:ray pytest.ini .coveragerc /opt/cosmos-curate/
+
 # Workspace shell setup (Anyscale workspace requirement).
 RUN set -euxo pipefail \
     && echo 'PROMPT_COMMAND="history -a"' >> /home/ray/.bashrc \

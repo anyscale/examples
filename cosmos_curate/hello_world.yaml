@@ -1,5 +1,5 @@
-name: custom-image-cosmos
-image_uri: 367974485317.dkr.ecr.us-west-2.amazonaws.com/anyscale-cosmos-curate:3
+name: cosmos-curate-hello-world
+image_uri: 367974485317.dkr.ecr.us-west-2.amazonaws.com/anyscale-cosmos-curate:4
 ray_version: 2.48.0
 entrypoint: >
   python all_nodes_init_script.py gpt2

@@ -19,9 +19,9 @@ echo '---------------------------------------'
 @ray.remote(num_cpus=0)
 def run_init(script):
     try:
-        return subprocess.check_output(script, shell=True, stderr=subprocess.STDOUT)
+        subprocess.check_call(script, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Init script failed (exit code {e.returncode}):\n{e.output.decode()}") from None
+        raise RuntimeError(f"Init script failed (exit code {e.returncode})") from None
 
 if __name__ == "__main__":
     models = sys.argv[1]
