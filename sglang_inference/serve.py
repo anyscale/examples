@@ -48,7 +48,7 @@ class SGLangDeployment:
 
         # Monkey patch signal.signal to avoid "signal only works in main thread"
         # error. SGLang tries to register signal handlers for graceful shutdown,
-        # but Ray Serve workers are not in the main thread.
+        # but Ray Serve runs user code in a separate thread.
         original_signal = signal.signal
 
         def noop_signal_handler(sig, action):
@@ -70,9 +70,13 @@ class SGLangDeployment:
     async def generate(self, request: dict) -> dict:
         text = request.get("text", "")
         sampling_params = request.get("sampling_params", {"max_new_tokens": 64})
+
+        # Set stream=False to get a single result instead of an AsyncGenerator.
+        # Without it, the await would hang (generators need async for/anext).
         result = await self.engine.async_generate(
             prompt=text,
             sampling_params=sampling_params,
+            stream=False
         )
         return {"text": result["text"]}
 
