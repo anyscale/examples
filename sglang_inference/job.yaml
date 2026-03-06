@@ -14,11 +14,11 @@ containerfile: ./Dockerfile
 
 compute_config:
   min_resources:
-    CPU: 200    # Head (8 vCPU) + 4 nodes × 48 vCPU
-    GPU: 16     # 2 replicas × 2 nodes × 4 GPUs
+    CPU: 104    # Head (8 vCPU) + 2 nodes × 48 vCPU
+    GPU: 8      # 1 engine × 2 nodes × 4 GPUs
   max_resources:
-    CPU: 200    # Fixed cluster size
-    GPU: 16
+    CPU: 104    # Fixed cluster size
+    GPU: 8
 
 env_vars:
   MODEL_PATH: "Qwen/Qwen3-1.7B"
