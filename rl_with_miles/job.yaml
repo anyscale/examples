@@ -35,6 +35,7 @@ entrypoint: bash entrypoint.sh
 
 env_vars:
   CUDA_DEVICE_MAX_CONNECTIONS: "1"
+  TENSORBOARD_DIR: "/mnt/cluster_storage/tensorboard_logs"
 
 max_retries: 0
 timeout_s: 7200
