@@ -31,7 +31,6 @@ ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/ray/.local/bin:${PATH}"
 
-# Install SGLang from a feature branch that supports Ray actor scheduling.
-# Replace with a released version after this feature is merged into a future SGLang release.
+# Install SGLang with Ray actor scheduling support (merged into main)
 RUN uv pip install --system \
-    "sglang[all] @ git+https://github.com/xyuzh/sglang.git@feature/ray-actor-scheduler#subdirectory=python"
+    "sglang[all] @ git+https://github.com/sgl-project/sglang.git@main#subdirectory=python"
