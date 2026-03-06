@@ -12,7 +12,6 @@ set -ex
 
 export PYTHONUNBUFFERED=1
 STORAGE=/mnt/cluster_storage
-export TENSORBOARD_DIR=${STORAGE}/tensorboard_logs
 
 # Qwen3-8B model architecture args (from scripts/models/qwen3-8B.sh)
 MODEL_ARGS=(
