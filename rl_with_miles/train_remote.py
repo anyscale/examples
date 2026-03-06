@@ -23,11 +23,4 @@ def run_training(cmd_args):
     )
     return result.returncode
 
-if __name__ == "__main__":
-    # Pass through all command-line arguments
-    cmd_args = sys.argv[1:]
-
-    # Run training on GPU workers
-    returncode = ray.get(run_training.remote(cmd_args))
-
-    sys.exit(returncode)
+raise SystemExit(ray.get(run_training.remote(sys.argv[1:])))

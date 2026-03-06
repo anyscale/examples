@@ -20,17 +20,9 @@ def convert_weights(cmd_args):
     )
     return result.returncode, result.stdout, result.stderr
 
-if __name__ == "__main__":
-    # Pass through all command-line arguments
-    cmd_args = sys.argv[1:]
-
-    # Run conversion on GPU worker
-    returncode, stdout, stderr = ray.get(convert_weights.remote(cmd_args))
-
-    # Print output
-    if stdout:
-        print(stdout, end="")
-    if stderr:
-        print(stderr, end="", file=sys.stderr)
-
-    sys.exit(returncode)
+returncode, stdout, stderr = ray.get(convert_weights.remote(sys.argv[1:]))
+if stdout:
+    print(stdout, end="")
+if stderr:
+    print(stderr, end="", file=sys.stderr)
+raise SystemExit(returncode)
