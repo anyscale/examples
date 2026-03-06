@@ -19,7 +19,7 @@ Clone the example from GitHub.
 
 ```bash
 git clone https://github.com/anyscale/examples.git
-cd examples/miles_qwen3_8b_h100
+cd examples/rl_with_miles
 ```
 
 Submit the job.

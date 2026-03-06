@@ -6,7 +6,7 @@
 #   Worker 0 (8x H100):  [GPU 0-3: Training TP=2 DP=2] [GPU 4-7: Rollout (4 engines)]
 #
 # Submit with:
-#   cd miles_qwen3_8b_h100
+#   cd rl_with_miles
 #   anyscale job submit -f job.yaml
 
 name: miles-qwen3-8b-grpo-h100
@@ -15,9 +15,17 @@ containerfile: ./Dockerfile
 
 compute_config:
   head_node:
-    instance_type: m5.2xlarge
+    required_resources:
+      CPU: 8
+      memory: 32Gi
   worker_nodes:
-    - instance_type: p5.48xlarge    # 8x H100-80GB
+    - name: h100-workers
+      required_resources:
+        CPU: 192
+        memory: 2048Gi
+        GPU: 8
+      required_labels:
+        ray.io/accelerator-type: H100
       min_nodes: 1
       max_nodes: 1
 
