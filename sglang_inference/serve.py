@@ -1,12 +1,3 @@
-"""Ray Serve deployment for SGLang inference.
-
-This deployment uses Ray Serve's placement_group_bundles to reserve GPUs
-across multiple nodes for tensor-parallel inference with SGLang.
-
-Based on the Ray Serve LLM + SGLang integration pattern from:
-https://github.com/ray-project/ray/pull/58366
-"""
-
 import os
 import signal
 

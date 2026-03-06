@@ -1,13 +1,3 @@
-"""
-Offline (batch) inference with SGLang on Ray.
-
-Wraps sglang.Engine in a Ray actor for multi-node batch generation.
-The driver (head node) needs no GPU — SGLang is imported only inside the actor.
-
-Usage:
-    python driver_offline.py
-"""
-
 import os
 import time
 
