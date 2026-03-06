@@ -14,7 +14,9 @@ containerfile: ./Dockerfile
 
 compute_config:
   head_node:
-    instance_type: m5.2xlarge        # CPU-only head
+    required_resources:
+      CPU: 8
+      memory: 32Gi
   worker_nodes:
     - name: gpu-workers
       required_resources:
