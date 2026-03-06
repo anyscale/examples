@@ -19,13 +19,13 @@ compute_config:
       CPU: 8
       memory: 32Gi
   worker_nodes:
-    - name: h100-workers
-      required_resources:
+    - required_resources:
         CPU: 192
         memory: 2048Gi
         GPU: 8
       required_labels:
         ray.io/accelerator-type: H100
+      market_type: SPOT
       min_nodes: 1
       max_nodes: 1
 
