@@ -2,7 +2,7 @@
 Offline (batch) inference with SGLang on Ray.
 
 Wraps sglang.Engine in a Ray actor for multi-node batch generation.
-The driver (head node) needs no GPU — sglang is imported only inside the actor.
+The driver (head node) needs no GPU — SGLang is imported only inside the actor.
 
 Usage:
     python driver_offline.py
@@ -45,61 +45,56 @@ class EngineActor:
         self.engine.shutdown()
 
 
-def main():
-    gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES_PER_REPLICA
+gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES_PER_REPLICA
 
-    print(f"Configuration: MODEL_PATH={MODEL_PATH}, TP={TP_SIZE}, PP={PP_SIZE}, NUM_NODES_PER_REPLICA={NUM_NODES_PER_REPLICA}")
-    print(f"GPUs per node: {gpus_per_node}")
+print(f"Configuration: MODEL_PATH={MODEL_PATH}, TP={TP_SIZE}, PP={PP_SIZE}, NUM_NODES_PER_REPLICA={NUM_NODES_PER_REPLICA}")
+print(f"GPUs per node: {gpus_per_node}")
 
-    # Reserve GPUs across nodes
-    pg = placement_group(
-        bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES_PER_REPLICA,
-    )
-    ray.get(pg.ready())
-    print("Placement group ready.")
+# Reserve GPUs across nodes
+pg = placement_group(
+    bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES_PER_REPLICA,
+)
+ray.get(pg.ready())
+print("Placement group ready.")
 
-    # Start engine actor on the first bundle
-    engine = EngineActor.options(
-        num_cpus=1,
-        num_gpus=0,
-        scheduling_strategy=PlacementGroupSchedulingStrategy(
-            placement_group=pg, placement_group_bundle_index=0,
-        ),
-    ).remote(
-        model_path=MODEL_PATH,
-        tp_size=TP_SIZE,
-        pp_size=PP_SIZE,
-        nnodes=NUM_NODES_PER_REPLICA,
-        use_ray=True,
-    )
+# Start engine actor on the first bundle
+engine = EngineActor.options(
+    num_cpus=1,
+    num_gpus=0,
+    scheduling_strategy=PlacementGroupSchedulingStrategy(
+        placement_group=pg, placement_group_bundle_index=0,
+    ),
+).remote(
+    model_path=MODEL_PATH,
+    tp_size=TP_SIZE,
+    pp_size=PP_SIZE,
+    nnodes=NUM_NODES_PER_REPLICA,
+    use_ray=True,
+)
 
-    # Wait for engine to be ready (model loaded)
-    print("Loading model...")
-    ray.get(engine.generate.remote(["warmup"], {"max_new_tokens": 1}))
-    print("Engine ready.")
+# Wait for engine to be ready (model loaded)
+print("Loading model...")
+ray.get(engine.generate.remote(["warmup"], {"max_new_tokens": 1}))
+print("Engine ready.")
 
-    # Batch generate
-    prompts = [
-        "The capital of France is",
-        "Explain quantum computing in simple terms:",
-        "Write a haiku about programming:",
-        "What is 2 + 2?",
-    ]
+# Batch generate
+prompts = [
+    "The capital of France is",
+    "Explain quantum computing in simple terms:",
+    "Write a haiku about programming:",
+    "What is 2 + 2?",
+]
 
-    t0 = time.time()
-    results = ray.get(
-        engine.generate.remote(prompts, {"max_new_tokens": 64, "temperature": 0.0})
-    )
-    print(f"Generated {len(results)} responses in {time.time() - t0:.2f}s\n")
+t0 = time.time()
+results = ray.get(
+    engine.generate.remote(prompts, {"max_new_tokens": 64, "temperature": 0.0})
+)
+print(f"Generated {len(results)} responses in {time.time() - t0:.2f}s\n")
 
-    for prompt, result in zip(prompts, results):
-        print(f"Prompt:   {prompt}")
-        print(f"Response: {result['text'][:200]}\n")
+for prompt, result in zip(prompts, results):
+    print(f"Prompt:   {prompt}")
+    print(f"Response: {result['text'][:200]}\n")
 
-    # Cleanup
-    ray.get(engine.shutdown.remote())
-    ray.util.remove_placement_group(pg)
-
-
-if __name__ == "__main__":
-    main()
+# Cleanup
+ray.get(engine.shutdown.remote())
+ray.util.remove_placement_group(pg)
