@@ -4,11 +4,14 @@ import sys
 import subprocess
 import ray
 
-@ray.remote
+@ray.remote(resources={"accelerator_type_H100": 0.001})
 def run_training(cmd_args):
     """Run training on GPU workers.
 
-    Note: We don't reserve GPUs here because the MILES training script
+    Uses accelerator_type_H100 resource to ensure scheduling on H100 GPU nodes.
+    This must match the accelerator-type label in job.yaml compute_config.
+
+    Note: We don't reserve GPUs (num_gpus) because the MILES training script
     internally uses Ray to allocate GPUs for training and rollout.
     Reserving GPUs in the wrapper would conflict with the subprocess's
     GPU allocation.
