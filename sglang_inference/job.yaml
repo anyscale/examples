@@ -18,11 +18,12 @@ compute_config:
       CPU: 8
       memory: 32Gi
   worker_nodes:
-    - name: gpu-workers
-      required_resources:
+    - required_resources:
         CPU: 48
         memory: 128Gi
         GPU: 4
+      required_labels:
+        ray.io/accelerator-type: "A10G"
       min_nodes: 2
       max_nodes: 2
 

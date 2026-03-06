@@ -1,4 +1,4 @@
-FROM anyscale/ray:2.53.0-py312-cu129
+FROM anyscale/ray:2.54.0-py312-cu129
 
 # System dependencies for building SGLang extensions
 RUN sudo apt-get update && \
@@ -25,12 +25,11 @@ RUN curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu22
 
 ENV PATH="/usr/local/cuda/bin:${PATH}"
 ENV CUDA_HOME="/usr/local/cuda"
-ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # Python dependencies
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/ray/.local/bin:${PATH}"
 
-# Install SGLang with Ray actor scheduling support (merged into main)
+# Install SGLang from main branch
 RUN uv pip install --system \
     "sglang[all] @ git+https://github.com/sgl-project/sglang.git@main#subdirectory=python"

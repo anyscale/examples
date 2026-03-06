@@ -14,16 +14,16 @@ NUM_NODES_PER_REPLICA = int(os.environ.get("NUM_NODES_PER_REPLICA", "2"))
 
 @ray.remote
 class EngineActor:
-    """Thin wrapper that creates an sglang.Engine inside a Ray actor.
+    """Thin wrapper that creates an sglang.srt.ray.engine.RayEngine inside a Ray actor.
 
     We import sglang inside the actor because it initializes CUDA and
     cannot be imported on the CPU-only head node where the driver runs.
     """
 
     def __init__(self, **kwargs):
-        from sglang import Engine
+        from sglang.srt.ray.engine import RayEngine
 
-        self.engine = Engine(**kwargs)
+        self.engine = RayEngine(**kwargs)
 
     def generate(self, prompts, sampling_params):
         return [
@@ -47,19 +47,21 @@ pg = placement_group(
 ray.get(pg.ready())
 print("Placement group ready.")
 
-# Start engine actor on the first bundle
+# Start engine actor on the first bundle.
+# RayEngine spawns SchedulerActor children (one per GPU rank) and distributes them across nodes.
 engine = EngineActor.options(
     num_cpus=1,
     num_gpus=0,
     scheduling_strategy=PlacementGroupSchedulingStrategy(
-        placement_group=pg, placement_group_bundle_index=0,
+        placement_group=pg,
+        placement_group_bundle_index=0,
+        placement_group_capture_child_tasks=True,  # Create the child actors in the same placement group.
     ),
 ).remote(
     model_path=MODEL_PATH,
     tp_size=TP_SIZE,
     pp_size=PP_SIZE,
     nnodes=NUM_NODES_PER_REPLICA,
-    use_ray=True,
 )
 
 # Wait for engine to be ready (model loaded)

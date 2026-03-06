@@ -27,6 +27,9 @@ app = FastAPI()
     },
     # Reserve resources across multiple nodes for tensor parallelism.
     # Each bundle reserves GPUs on one node.
+    # Ray Serve automatically sets placement_group_capture_child_tasks=True when
+    # placement_group_bundles is specified, ensuring child actors created by
+    # RayEngine are placed within the placement group.
     placement_group_bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES_PER_REPLICA,
 )
 @serve.ingress(app)
@@ -35,7 +38,7 @@ class SGLangDeployment:
         # Import sglang inside the actor because it initializes CUDA and
         # cannot be imported on the CPU-only head node where the Serve
         # controller runs.
-        from sglang import Engine
+        from sglang.srt.ray.engine import RayEngine
 
         # Monkey patch signal.signal to avoid "signal only works in main thread"
         # error. SGLang tries to register signal handlers for graceful shutdown,
@@ -47,12 +50,11 @@ class SGLangDeployment:
 
         try:
             signal.signal = noop_signal_handler
-            self.engine = Engine(
+            self.engine = RayEngine(
                 model_path=MODEL_PATH,
                 tp_size=TP_SIZE,
                 pp_size=PP_SIZE,
                 nnodes=NUM_NODES_PER_REPLICA,
-                use_ray=True,
             )
         finally:
             signal.signal = original_signal
