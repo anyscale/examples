@@ -3,13 +3,14 @@
 import sys
 import subprocess
 import ray
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
-@ray.remote(resources={"accelerator_type_H100": 0.001})
+@ray.remote
 def run_training(cmd_args):
     """Run training on GPU workers.
 
-    Uses accelerator_type_H100 resource to ensure scheduling on H100 GPU nodes.
-    This must match the accelerator-type label in job.yaml compute_config.
+    Uses node label scheduling to ensure placement on H100 GPU nodes.
+    The label must match the accelerator-type in job.yaml compute_config.
 
     Note: We don't reserve GPUs (num_gpus) because the MILES training script
     internally uses Ray to allocate GPUs for training and rollout.
@@ -27,7 +28,20 @@ if __name__ == "__main__":
     # Pass through all command-line arguments
     cmd_args = sys.argv[1:]
 
+    # Get a GPU worker node (matches ray.io/accelerator-type: H100 from job.yaml)
+    gpu_nodes = [node for node in ray.nodes() if node.get("Resources", {}).get("GPU", 0) > 0]
+    if not gpu_nodes:
+        raise RuntimeError("No GPU nodes available")
+
+    # Schedule on a GPU node with H100 accelerators
+    scheduling_strategy = NodeAffinitySchedulingStrategy(
+        node_id=gpu_nodes[0]["NodeID"],
+        soft=False,
+    )
+
     # Run training on GPU workers
-    returncode = ray.get(run_training.remote(cmd_args))
+    returncode = ray.get(
+        run_training.options(scheduling_strategy=scheduling_strategy).remote(cmd_args)
+    )
 
     sys.exit(returncode)
