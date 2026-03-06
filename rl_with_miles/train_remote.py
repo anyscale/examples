@@ -4,9 +4,15 @@ import sys
 import subprocess
 import ray
 
-@ray.remote(num_gpus=8)  # Reserves all 8 GPUs (4 for training + 4 for rollout)
+@ray.remote
 def run_training(cmd_args):
-    """Run training on GPU workers."""
+    """Run training on GPU workers.
+
+    Note: We don't reserve GPUs here because the MILES training script
+    internally uses Ray to allocate GPUs for training and rollout.
+    Reserving GPUs in the wrapper would conflict with the subprocess's
+    GPU allocation.
+    """
     result = subprocess.run(
         ["python", "/tmp/miles/train_async.py"] + cmd_args,
         capture_output=False,  # Stream output directly
