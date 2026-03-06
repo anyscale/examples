@@ -4,7 +4,7 @@ import sys
 import subprocess
 import ray
 
-@ray.remote(num_gpus=4)  # Training needs 4 GPUs
+@ray.remote(num_gpus=8)  # Reserves all 8 GPUs (4 for training + 4 for rollout)
 def run_training(cmd_args):
     """Run training on GPU workers."""
     result = subprocess.run(
