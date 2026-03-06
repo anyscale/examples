@@ -23,4 +23,4 @@ def run_training(cmd_args):
     )
     return result.returncode
 
-raise SystemExit(ray.get(run_training.remote(sys.argv[1:])))
+sys.exit(ray.get(run_training.remote(sys.argv[1:])))

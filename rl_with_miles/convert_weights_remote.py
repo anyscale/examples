@@ -25,4 +25,4 @@ if stdout:
     print(stdout, end="")
 if stderr:
     print(stderr, end="", file=sys.stderr)
-raise SystemExit(returncode)
+sys.exit(returncode)
