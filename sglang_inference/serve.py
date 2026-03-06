@@ -17,9 +17,9 @@ from ray import serve
 MODEL_PATH = os.environ.get("MODEL_PATH", "Qwen/Qwen3-1.7B")
 TP_SIZE = int(os.environ.get("TP_SIZE", "4"))
 PP_SIZE = int(os.environ.get("PP_SIZE", "2"))
-NUM_NODES = int(os.environ.get("NUM_NODES", "2"))
+NUM_NODES_PER_REPLICA = int(os.environ.get("NUM_NODES_PER_REPLICA", "2"))
 
-gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES
+gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES_PER_REPLICA
 
 app = FastAPI()
 
@@ -36,7 +36,7 @@ app = FastAPI()
     },
     # Reserve resources across multiple nodes for tensor parallelism.
     # Each bundle reserves GPUs on one node.
-    placement_group_bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES,
+    placement_group_bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES_PER_REPLICA,
 )
 @serve.ingress(app)
 class SGLangDeployment:
@@ -60,7 +60,7 @@ class SGLangDeployment:
                 model_path=MODEL_PATH,
                 tp_size=TP_SIZE,
                 pp_size=PP_SIZE,
-                nnodes=NUM_NODES,
+                nnodes=NUM_NODES_PER_REPLICA,
                 use_ray=True,
             )
         finally:

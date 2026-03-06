@@ -19,7 +19,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 MODEL_PATH = os.environ.get("MODEL_PATH", "Qwen/Qwen3-1.7B")
 TP_SIZE = int(os.environ.get("TP_SIZE", "4"))
 PP_SIZE = int(os.environ.get("PP_SIZE", "2"))
-NUM_NODES = int(os.environ.get("NUM_NODES", "2"))
+NUM_NODES_PER_REPLICA = int(os.environ.get("NUM_NODES_PER_REPLICA", "2"))
 
 
 @ray.remote
@@ -46,14 +46,14 @@ class EngineActor:
 
 
 def main():
-    gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES
+    gpus_per_node = (TP_SIZE * PP_SIZE) // NUM_NODES_PER_REPLICA
 
-    print(f"Configuration: MODEL_PATH={MODEL_PATH}, TP={TP_SIZE}, PP={PP_SIZE}, NUM_NODES={NUM_NODES}")
+    print(f"Configuration: MODEL_PATH={MODEL_PATH}, TP={TP_SIZE}, PP={PP_SIZE}, NUM_NODES_PER_REPLICA={NUM_NODES_PER_REPLICA}")
     print(f"GPUs per node: {gpus_per_node}")
 
     # Reserve GPUs across nodes
     pg = placement_group(
-        bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES,
+        bundles=[{"CPU": 1, "GPU": gpus_per_node}] * NUM_NODES_PER_REPLICA,
     )
     ray.get(pg.ready())
     print("Placement group ready.")
@@ -69,7 +69,7 @@ def main():
         model_path=MODEL_PATH,
         tp_size=TP_SIZE,
         pp_size=PP_SIZE,
-        nnodes=NUM_NODES,
+        nnodes=NUM_NODES_PER_REPLICA,
         use_ray=True,
     )
 
