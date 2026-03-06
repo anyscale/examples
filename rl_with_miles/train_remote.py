@@ -4,6 +4,7 @@ import sys
 import subprocess
 import ray
 
+
 @ray.remote(label_selector={"ray.io/accelerator-type": "H100"})
 def run_training(cmd_args):
     """Run training on GPU workers.
@@ -22,5 +23,6 @@ def run_training(cmd_args):
         text=True
     )
     return result.returncode
+
 
 sys.exit(ray.get(run_training.remote(sys.argv[1:])))

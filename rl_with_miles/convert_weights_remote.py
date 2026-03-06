@@ -4,6 +4,7 @@ import sys
 import subprocess
 import ray
 
+
 @ray.remote(label_selector={"ray.io/accelerator-type": "H100"})
 def convert_weights(cmd_args):
     """Run weight conversion on a GPU worker.
@@ -20,6 +21,7 @@ def convert_weights(cmd_args):
         text=True
     )
     return result.returncode, result.stdout, result.stderr
+
 
 returncode, stdout, stderr = ray.get(convert_weights.remote(sys.argv[1:]))
 if stdout:
