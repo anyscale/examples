@@ -21,7 +21,7 @@ compute_config:
     - name: gpu-workers
       required_resources:
         CPU: 48
-        memory: 64Gi
+        memory: 128Gi
         GPU: 4
       min_nodes: 2
       max_nodes: 2
