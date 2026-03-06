@@ -10,7 +10,7 @@
 
 set -ex
 
-export PYTHONBUFFERED=16
+export PYTHONUNBUFFERED=1
 STORAGE=/mnt/cluster_storage
 
 # Qwen3-8B model architecture args (from scripts/models/qwen3-8B.sh)
