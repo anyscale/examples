@@ -35,5 +35,3 @@ ENV PATH="/home/ray/.local/bin:${PATH}"
 # Replace with a released version after this feature is merged into a future SGLang release.
 RUN uv pip install --system \
     "sglang[all] @ git+https://github.com/xyuzh/sglang.git@feature/ray-actor-scheduler#subdirectory=python"
-
-WORKDIR /home/ray/default
