@@ -17,7 +17,7 @@ compute_config:
     instance_type: m5.2xlarge        # CPU-only head
   worker_nodes:
     - instance_type: g5.12xlarge     # 4x A10G
-      min_nodes: 4
+      min_nodes: 2
       max_nodes: 8
 
 env_vars:
