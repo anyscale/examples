@@ -6,19 +6,16 @@ import os
 import ray
 
 
-@ray.remote(
-    num_gpus=1,
-    label_selector={"ray.io/accelerator-type": "H100"}
-)
+@ray.remote(label_selector={"ray.io/accelerator-type": "H100"})
 def convert_weights(cmd_args):
     """Run weight conversion on a GPU worker.
 
     Uses label selector to ensure placement on H100 GPU nodes.
     The label must match the accelerator-type in job.yaml compute_config.
 
-    Reserves 1 GPU (num_gpus=1) for scheduling and explicitly sets
-    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 so the subprocess can access
-    all GPUs on the worker node.
+    Explicitly sets CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 so the subprocess
+    can access all GPUs on the worker node. Does not reserve GPUs (num_gpus)
+    to allow flexible GPU allocation.
     """
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
