@@ -13,12 +13,12 @@ name: sglang-offline-inference
 containerfile: ./Dockerfile
 
 compute_config:
-  head_node:
-    instance_type: m5.2xlarge        # CPU-only head
-  worker_nodes:
-    - instance_type: g5.12xlarge     # 4x A10G
-      min_nodes: 4
-      max_nodes: 4
+  min_resources:
+    CPU: 200    # Head (8 vCPU) + 4 nodes × 48 vCPU
+    GPU: 16     # 2 replicas × 2 nodes × 4 GPUs
+  max_resources:
+    CPU: 200    # Fixed cluster size
+    GPU: 16
 
 env_vars:
   MODEL_PATH: "Qwen/Qwen3-1.7B"
