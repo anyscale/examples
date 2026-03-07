@@ -2,7 +2,7 @@
 
 This example demonstrates reinforcement learning fine-tuning of Qwen3-8B using **Group Relative Policy Optimization (GRPO)** on the DAPO-Math-17k dataset. It uses the [MILES](https://github.com/radixark/miles) framework for distributed RL training with disaggregated rollouts on Anyscale.
 
-The training runs on a single node with **8x H100-80GB GPUs**, using:
+The training runs on a single node with **8x H100 GPUs**, using:
 - **4 GPUs for training** (TP=2, DP=2 with Megatron-LM)
 - **4 GPUs for rollout inference** (disaggregated SGLang engines)
 
