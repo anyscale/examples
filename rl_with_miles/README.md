@@ -19,7 +19,7 @@ Clone the example from GitHub.
 
 ```bash
 git clone https://github.com/anyscale/examples.git
-cd examples/miles_qwen3_8b_h100
+cd examples/rl_with_miles
 ```
 
 Submit the job.
@@ -37,3 +37,4 @@ The entrypoint will automatically download the model and dataset, convert weight
 - **Disaggregated architecture**: Training and rollout happen on separate GPUs for maximum throughput. The 4 SGLang rollout engines run inference in parallel while the training GPUs perform gradient updates.
 - **Weight conversion**: On the first run, HuggingFace weights are converted to Megatron-LM's `torch_dist` format. Converted weights are cached in `/mnt/cluster_storage/Qwen3-8B_torch_dist` for subsequent runs.
 - **Async training**: The pipeline uses `train_async.py` which overlaps rollout generation and policy updates for better GPU utilization.
+- **Ray remote wrappers**: The MILES scripts are wrapped in Ray remote functions (`convert_weights_remote.py` and `train_remote.py`) to ensure they execute on GPU worker nodes rather than the CPU-only head node. Both wrappers use `label_selector={"ray.io/accelerator-type": "H100"}` to match the accelerator type specified in `job.yaml`, ensuring placement on H100 GPU nodes. Both wrappers explicitly set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7` in the subprocess environment to provide access to all 8 GPUs. Neither wrapper reserves GPUs with `num_gpus` to allow the subprocesses to manage GPU allocation internally.

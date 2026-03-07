@@ -10,7 +10,7 @@
 
 set -ex
 
-export PYTHONBUFFERED=16
+export PYTHONUNBUFFERED=1
 STORAGE=/mnt/cluster_storage
 
 # Qwen3-8B model architecture args (from scripts/models/qwen3-8B.sh)
@@ -129,7 +129,6 @@ MISC_ARGS=(
    --attention-softmax-in-fp32
    --attention-backend flash
    --use-tensorboard
-   --tensorboard-dir ${STORAGE}/tensorboard_logs
 )
 
 echo "=== Starting training ==="
