@@ -69,8 +69,7 @@ print("Loading model...")
 ray.get(engine.generate.remote(["warmup"], {"max_new_tokens": 1}))
 print("Engine ready.")
 
-# Generate a large batch of prompts for sustained GPU load
-# Target: 5-10 minutes of continuous computation
+# Generate a large batch of prompts
 base_prompts = [
     "The capital of France is",
     "Explain quantum computing in simple terms:",
@@ -94,15 +93,13 @@ base_prompts = [
     "Explain gravity:",
 ]
 
-# Replicate prompts to create a large batch (500 total prompts)
-# Each prompt will generate 256 tokens for sustained computation
 num_copies = 25
 prompts = base_prompts * num_copies
-print(f"Generating {len(prompts)} responses with max_new_tokens=256 for sustained GPU load...")
+print(f"Generating {len(prompts)} responses...")
 
 t0 = time.time()
 results = ray.get(
-    engine.generate.remote(prompts, {"max_new_tokens": 256, "temperature": 0.8})
+    engine.generate.remote(prompts, {"max_new_tokens": 512, "temperature": 0.8})
 )
 elapsed = time.time() - t0
 print(f"\nGenerated {len(results)} responses in {elapsed:.2f}s ({len(results)/elapsed:.2f} responses/sec)\n")
