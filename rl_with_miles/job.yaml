@@ -14,8 +14,8 @@ compute_config:
         GPU: 8
       required_labels:
         ray.io/accelerator-type: H100
-      min_nodes: 1
-      max_nodes: 1
+      min_nodes: 2
+      max_nodes: 2
 
 working_dir: .
 

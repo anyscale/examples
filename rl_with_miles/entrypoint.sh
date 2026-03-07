@@ -1,12 +1,11 @@
 #!/bin/bash
-# Anyscale entrypoint: Qwen3-8B GRPO training on 1 worker × 8x H100-80GB
+# Anyscale entrypoint: Qwen3-8B GRPO training on 2 workers × 8x H100
 # Downloads model/dataset, converts weights, and runs async RL training.
 #
 # Head node (m5.2xlarge): driver only, no GPUs
-# Layout (GPU worker):
-#   Worker 0 (8x H100):
-#     GPU 0-3: Training (TP=2, DP=2)
-#     GPU 4-7: Rollout (4 SGLang engines, 1 GPU each)
+# GPU Placement (determined by MILES using Ray Placement Groups with PACK strategy):
+#   Node 1 (8x H100): Training GPUs 0-7 (TP=2, DP=8)
+#   Node 2 (8x H100): Rollout GPUs 0-7 (8 SGLang engines, 1 GPU each)
 
 set -ex
 
@@ -133,9 +132,9 @@ MISC_ARGS=(
 
 echo "=== Starting training ==="
 python train_remote.py \
-   --actor-num-nodes 1 \
+   --actor-num-nodes 2 \
    --actor-num-gpus-per-node 4 \
-   --rollout-num-gpus 4 \
+   --rollout-num-gpus 8 \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
    ${ROLLOUT_ARGS[@]} \
