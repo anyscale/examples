@@ -95,67 +95,31 @@ base_prompts = [
 
 num_copies = 25
 prompts = base_prompts * num_copies
-batch_size = 10  # Process prompts in batches
+batch_size = 10
 sampling_params = {"max_new_tokens": 512, "temperature": 0.8}
 
-print(f"Generating {len(prompts)} responses in batches of {batch_size}...")
-print(f"This will print results as they complete...\n")
+print(f"Generating {len(prompts)} responses in batches of {batch_size}...\n")
 
 t0 = time.time()
 all_results = []
-completed_count = 0
 
-# Submit all batches at once
-futures = []
-for i in range(0, len(prompts), batch_size):
-    batch = prompts[i:i+batch_size]
-    future = engine.generate.remote(batch, sampling_params)
-    futures.append((future, i, batch))
+# Submit all batches
+futures = [engine.generate.remote(prompts[i:i+batch_size], sampling_params)
+           for i in range(0, len(prompts), batch_size)]
 
-print(f"Submitted {len(futures)} batches\n")
-
-# Process results as they complete using ray.wait
-remaining_futures = [(f, start_idx, batch) for f, start_idx, batch in futures]
-
-while remaining_futures:
-    # Wait for at least one batch to complete
-    ready_refs = [f for f, _, _ in remaining_futures]
-    ready, not_ready = ray.wait(ready_refs, num_returns=1, timeout=None)
-
-    # Find the completed batch
-    for future, start_idx, batch in remaining_futures:
-        if future in ready:
-            results = ray.get(future)
-            all_results.extend(results)
-            completed_count += len(results)
-            elapsed = time.time() - t0
-
-            # Print progress with sample from this batch
-            print(f"[{elapsed:.1f}s] Completed batch {start_idx//batch_size + 1}/{len(futures)} ({completed_count}/{len(prompts)} total responses, {completed_count/elapsed:.2f} resp/sec)")
-
-            # Show first result from this batch
-            if results:
-                print(f"  Sample: {batch[0][:60]}... -> {results[0]['text'][:100]}...\n")
-
-            # Remove from remaining
-            remaining_futures.remove((future, start_idx, batch))
-            break
+# Process as they complete
+while futures:
+    ready, futures = ray.wait(futures, num_returns=1)
+    results = ray.get(ready[0])
+    all_results.extend(results)
+    print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
 
 elapsed = time.time() - t0
-print(f"\n{'='*70}")
-print(f"Completed all {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} responses/sec)")
-print(f"{'='*70}\n")
+print(f"\nGenerated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)\n")
 
-# Print first and last responses
-print("First 3 full responses:")
-for i in range(min(3, len(all_results))):
-    print(f"\n[{i+1}] {prompts[i][:60]}...")
-    print(f"    {all_results[i]['text'][:200]}...")
-
-print(f"\nLast 3 full responses:")
-for i in range(max(0, len(all_results) - 3), len(all_results)):
-    print(f"\n[{i+1}] {prompts[i][:60]}...")
-    print(f"    {all_results[i]['text'][:200]}...")
+# Print samples
+for i in [0, 1, 2, -3, -2, -1]:
+    print(f"[{i if i >= 0 else len(all_results)+i+1}] {prompts[i][:50]}... -> {all_results[i]['text'][:100]}...\n")
 
 # Cleanup
 ray.get(engine.shutdown.remote())
