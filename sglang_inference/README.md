@@ -75,7 +75,7 @@ Override any variable at deploy/submit time with `--env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_PATH` | `Qwen/Qwen3-1.7B` | HuggingFace model ID |
+| `MODEL_PATH` | `Qwen/Qwen3-1.7B` | Hugging Face model ID |
 | `TP_SIZE` | `4` | Tensor parallelism (GPUs per pipeline stage) |
 | `PP_SIZE` | `2` | Pipeline parallelism (number of stages) |
 | `NUM_NODES_PER_REPLICA` | `2` | Nodes per replica |
