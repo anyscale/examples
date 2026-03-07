@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Ray remote wrapper for weight conversion - ensures it runs on a GPU worker."""
 import sys
 import subprocess

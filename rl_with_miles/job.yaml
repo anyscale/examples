@@ -1,14 +1,3 @@
-# Anyscale job config: Miles Qwen3-8B GRPO training on H100
-# Single node × 8x H100-80GB
-#
-# Layout:
-#   Head node (m5.2xlarge): driver only, no GPUs
-#   Worker 0 (8x H100):  [GPU 0-3: Training TP=2 DP=2] [GPU 4-7: Rollout (4 engines)]
-#
-# Submit with:
-#   cd rl_with_miles
-#   anyscale job submit -f job.yaml
-
 name: miles-qwen3-8b-grpo-h100
 
 containerfile: ./Dockerfile

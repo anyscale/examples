@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Ray remote wrapper for training - ensures it runs on GPU workers."""
 import sys
 import subprocess
