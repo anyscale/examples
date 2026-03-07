@@ -2,11 +2,8 @@
 #
 # Configuration: TP=4, PP=2 across 2 nodes (4 GPUs per node)
 #
-# Submit (small model, fast):
+# Submit:
 #   anyscale job submit -f job.yaml
-#
-# Submit (large model):
-#   anyscale job submit -f job.yaml --env MODEL_PATH=Qwen/Qwen3-30B-A3B-Instruct-2507
 
 name: sglang-offline-inference
 

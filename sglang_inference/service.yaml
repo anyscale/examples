@@ -2,11 +2,8 @@
 #
 # Configuration: TP=4, PP=2 across 2 nodes (4 GPUs per node)
 #
-# Deploy (small model, fast):
+# Deploy:
 #   anyscale service deploy -f service.yaml
-#
-# Deploy (large model):
-#   anyscale service deploy -f service.yaml --env MODEL_PATH=Qwen/Qwen3-30B-A3B-Instruct-2507
 
 name: sglang-inference
 

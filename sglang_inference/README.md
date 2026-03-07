@@ -24,24 +24,12 @@ Run batch inference as an Anyscale job:
 anyscale job submit -f job.yaml
 ```
 
-Or with the larger model:
-
-```bash
-anyscale job submit -f job.yaml --env MODEL_PATH=Qwen/Qwen3-30B-A3B-Instruct-2507
-```
-
 ## Deploy as a service
 
 Deploy as an HTTP endpoint with Ray Serve:
 
 ```bash
 anyscale service deploy -f service.yaml
-```
-
-Or with the larger model:
-
-```bash
-anyscale service deploy -f service.yaml --env MODEL_PATH=Qwen/Qwen3-30B-A3B-Instruct-2507
 ```
 
 Wait for the service to be ready:
