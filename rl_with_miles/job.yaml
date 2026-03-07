@@ -25,7 +25,6 @@ compute_config:
         GPU: 8
       required_labels:
         ray.io/accelerator-type: H100
-      market_type: SPOT
       min_nodes: 1
       max_nodes: 1
 
