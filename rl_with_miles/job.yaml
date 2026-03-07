@@ -22,6 +22,9 @@ working_dir: .
 entrypoint: bash entrypoint.sh
 
 env_vars:
+  # Standard setting for Megatron-LM with tensor parallelism on H100 GPUs.
+  # Limits concurrent CUDA kernel launches to prevent deadlocks with NCCL
+  # collective operations during distributed training.
   CUDA_DEVICE_MAX_CONNECTIONS: "1"
   TENSORBOARD_DIR: "/mnt/cluster_storage/tensorboard_logs"
 
