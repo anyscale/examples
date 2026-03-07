@@ -69,23 +69,60 @@ print("Loading model...")
 ray.get(engine.generate.remote(["warmup"], {"max_new_tokens": 1}))
 print("Engine ready.")
 
-# Batch generate
-prompts = [
+# Generate a large batch of prompts for sustained GPU load
+# Target: 5-10 minutes of continuous computation
+base_prompts = [
     "The capital of France is",
     "Explain quantum computing in simple terms:",
     "Write a haiku about programming:",
-    "What is 2 + 2?",
+    "What is the meaning of life?",
+    "Describe the water cycle:",
+    "What are the benefits of exercise?",
+    "Explain photosynthesis:",
+    "Write a short story about a robot:",
+    "What is artificial intelligence?",
+    "Describe the solar system:",
+    "What causes seasons on Earth?",
+    "Explain the theory of relativity:",
+    "What is machine learning?",
+    "Describe DNA structure:",
+    "What is climate change?",
+    "Explain how computers work:",
+    "What is the internet?",
+    "Describe the human brain:",
+    "What is evolution?",
+    "Explain gravity:",
 ]
+
+# Replicate prompts to create a large batch (500 total prompts)
+# Each prompt will generate 256 tokens for sustained computation
+num_copies = 25
+prompts = base_prompts * num_copies
+print(f"Generating {len(prompts)} responses with max_new_tokens=256 for sustained GPU load...")
 
 t0 = time.time()
 results = ray.get(
-    engine.generate.remote(prompts, {"max_new_tokens": 64, "temperature": 0.0})
+    engine.generate.remote(prompts, {"max_new_tokens": 256, "temperature": 0.8})
 )
-print(f"Generated {len(results)} responses in {time.time() - t0:.2f}s\n")
+elapsed = time.time() - t0
+print(f"\nGenerated {len(results)} responses in {elapsed:.2f}s ({len(results)/elapsed:.2f} responses/sec)\n")
 
-for prompt, result in zip(prompts, results):
-    print(f"Prompt:   {prompt}")
-    print(f"Response: {result['text'][:200]}\n")
+# Print first 5 and last 5 results as samples
+print("First 5 responses:")
+for i in range(min(5, len(results))):
+    prompt = prompts[i]
+    result = results[i]
+    print(f"\n[{i+1}] Prompt:   {prompt}")
+    print(f"    Response: {result['text'][:150]}...")
+
+print(f"\n... ({len(results) - 10} more responses) ...\n")
+
+print("Last 5 responses:")
+for i in range(max(0, len(results) - 5), len(results)):
+    prompt = prompts[i]
+    result = results[i]
+    print(f"\n[{i+1}] Prompt:   {prompt}")
+    print(f"    Response: {result['text'][:150]}...")
 
 # Cleanup
 ray.get(engine.shutdown.remote())
