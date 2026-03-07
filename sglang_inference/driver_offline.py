@@ -115,11 +115,7 @@ while futures:
     print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
 
 elapsed = time.time() - t0
-print(f"\nGenerated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)\n")
-
-# Print first 3 samples
-for i in range(3):
-    print(f"[{i+1}] {prompts[i][:50]}... -> {all_results[i]['text'][:100]}...\n")
+print(f"\nGenerated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)")
 
 # Cleanup
 ray.get(engine.shutdown.remote())
