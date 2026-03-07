@@ -103,16 +103,27 @@ print(f"Generating {len(prompts)} responses in batches of {batch_size}...\n")
 t0 = time.time()
 all_results = []
 
-# Submit all batches
-futures = [engine.generate.remote(prompts[i:i+batch_size], sampling_params)
+# Submit all batches with their start indices
+futures = [(engine.generate.remote(prompts[i:i+batch_size], sampling_params), i)
            for i in range(0, len(prompts), batch_size)]
 
 # Process as they complete
 while futures:
-    ready, futures = ray.wait(futures, num_returns=1)
-    results = ray.get(ready[0])
-    all_results.extend(results)
-    print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
+    ready_refs = [f for f, _ in futures]
+    ready, _ = ray.wait(ready_refs, num_returns=1)
+
+    # Find the completed future and its start index
+    for future, start_idx in futures:
+        if future == ready[0]:
+            results = ray.get(future)
+            all_results.extend(results)
+
+            # Print progress with first prompt from this batch
+            batch_prompts = prompts[start_idx:start_idx+len(results)]
+            print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec) - batch starting with: {batch_prompts[0][:60]}...")
+
+            futures.remove((future, start_idx))
+            break
 
 elapsed = time.time() - t0
 print(f"\nGenerated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)")
