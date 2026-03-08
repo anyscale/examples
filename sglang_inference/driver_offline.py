@@ -104,15 +104,18 @@ print(f"Generating {len(prompts)} responses in batches of {batch_size}...\n")
 t0 = time.time()
 all_results = []
 
-# Submit and process batches sequentially
-for i in range(0, len(prompts), batch_size):
-    batch = prompts[i:i+batch_size]
-    results = ray.get(engine.generate.remote(batch, sampling_params))
+# Submit all batches upfront
+futures = [(engine.generate.remote(prompts[i:i+batch_size], sampling_params), i)
+           for i in range(0, len(prompts), batch_size)]
+
+# Process results in order
+for future, start_idx in futures:
+    results = ray.get(future)
     all_results.extend(results)
 
     # Print full prompt and response for first element of batch
     print(f"\nCompleted {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
-    print(f"Prompt: {batch[0]}")
+    print(f"Prompt: {prompts[start_idx]}")
     print(f"Response: {results[0]['text']}\n")
 
 elapsed = time.time() - t0
