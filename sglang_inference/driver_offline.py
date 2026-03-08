@@ -114,9 +114,9 @@ for future, start_idx in futures:
     all_results.extend(results)
 
     # Print full prompt and response for first element of batch
-    print(f"\nCompleted {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
-    print(f"Prompt: {prompts[start_idx]}")
-    print(f"Response: {results[0]['text']}\n")
+    print(f"\nPrompt: {prompts[start_idx]}")
+    print(f"Response: {results[0]['text']}")
+    print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)\n")
 
 elapsed = time.time() - t0
 print(f"Generated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)")
