@@ -1,4 +1,5 @@
 import os
+import random
 import time
 
 import ray
@@ -93,9 +94,9 @@ base_prompts = [
     "Explain gravity:",
 ]
 
-num_copies = 25
-prompts = base_prompts * num_copies
-batch_size = 10
+num_prompts = 250
+prompts = [random.choice(base_prompts) for _ in range(num_prompts)]
+batch_size = 20
 sampling_params = {"max_new_tokens": 512, "temperature": 0.8}
 
 print(f"Generating {len(prompts)} responses in batches of {batch_size}...\n")
@@ -118,15 +119,16 @@ while futures:
             results = ray.get(future)
             all_results.extend(results)
 
-            # Print progress with first prompt from this batch
-            batch_prompts = prompts[start_idx:start_idx+len(results)]
-            print(f"Completed {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec) - batch starting with: {batch_prompts[0][:60]}...")
+            # Print full prompt and response for first element of batch
+            print(f"\nCompleted {len(all_results)}/{len(prompts)} responses ({len(all_results)/(time.time()-t0):.1f} resp/sec)")
+            print(f"Prompt: {prompts[start_idx]}")
+            print(f"Response: {results[0]['text']}\n")
 
             futures.remove((future, start_idx))
             break
 
 elapsed = time.time() - t0
-print(f"\nGenerated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)")
+print(f"Generated {len(all_results)} responses in {elapsed:.2f}s ({len(all_results)/elapsed:.2f} resp/sec)")
 
 # Cleanup
 ray.get(engine.shutdown.remote())
