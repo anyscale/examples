@@ -9,14 +9,23 @@ image_uri: anyscale/ray:2.54.0-slim-py313-cu129
 
 compute_config:
   head_node:
-    instance_type: m5.2xlarge
+    required_resources:
+      CPU: 8
+      memory: 32Gi
   worker_nodes:
     # CPU nodes for I/O-bound episode loading (S3 download + video decode).
-    - instance_type: m5.2xlarge  # 8 vCPU, 32 GB
+    - required_resources:
+        CPU: 8
+        memory: 32Gi
       min_nodes: 8
       max_nodes: 8
     # GPU nodes for BLIP inference (T4).
-    - instance_type: g4dn.xlarge  # 1 T4 GPU, 4 vCPU, 16 GB
+    - required_resources:
+        CPU: 4
+        memory: 16Gi
+        GPU: 1
+      required_labels:
+        ray.io/accelerator-type: T4
       min_nodes: 4
       max_nodes: 4
 
