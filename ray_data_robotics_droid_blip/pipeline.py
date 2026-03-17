@@ -31,6 +31,7 @@ Usage
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -66,12 +67,12 @@ CPU_LOADER_NUM_CPUS: float = 0.5
 
 # -- GPU inference stage --
 GPU_WORKER_NUM_GPUS: float = 1.0
-# (min, max) actor pool size. Ray Data autoscales within this range based
-# on throughput.
-GPU_CONCURRENCY: tuple[int, int] = (24, 32)
+# Number of GPU actors. Ray Data scales inference across this many actors.
+# Override via GPU_STAGE_CONCURRENCY env var; defaults to 2.
+GPU_CONCURRENCY: int = int(os.environ.get("GPU_STAGE_CONCURRENCY", "2"))
 # Rows per GPU batch. Increase until VRAM is ~80% utilized; BLIP-large fp16
 # uses ~1.5 GB, so 32–64 fits comfortably on most GPUs.
-GPU_BATCH_SIZE: int = 32
+GPU_BATCH_SIZE: int = int(os.environ.get("GPU_BATCH_SIZE", "32"))
 
 
 # ---------------------------------------------------------------------------

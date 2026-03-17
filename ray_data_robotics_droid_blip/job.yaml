@@ -1,0 +1,58 @@
+# View the docs https://docs.anyscale.com/reference/job-api#jobconfig.
+name: droid-blip-captioning
+
+# When empty, use the default image. This can be an Anyscale-provided base image
+# like anyscale/ray:2.43.0-slim-py312-cu125, a user-provided base image (provided
+# that it meets certain specs), or you can build new images using the Anyscale
+# image builder at https://console.anyscale-staging.com/v2/container-images.
+image_uri: anyscale/ray:2.54.0-slim-py313-cu129
+
+compute_config:
+  # Multi-resource cloud: fall back across AWS regions for GPU availability.
+  # All nodes in a given cluster land in the same resource; Anyscale picks the
+  # first available resource from the list.
+  # See: https://docs.anyscale.com/admin/cloud/multi-cloud
+  flags:
+    cloud_resource_strategy: input_order
+  configs:
+    - cloud_resource: vm-aws-us-east-1
+      head_node:
+        instance_type: m5.2xlarge
+      worker_nodes:
+        # CPU nodes for I/O-bound episode loading (S3 download + video decode).
+        - instance_type: m5.2xlarge  # 8 vCPU, 32 GB
+          min_nodes: 8
+          max_nodes: 8
+        # GPU nodes for BLIP inference (T4).
+        - instance_type: g4dn.xlarge  # 1 T4 GPU, 4 vCPU, 16 GB
+          min_nodes: 4
+          max_nodes: 4
+    - cloud_resource: vm-aws-us-west-1
+      head_node:
+        instance_type: m5.2xlarge
+      worker_nodes:
+        - instance_type: m5.2xlarge  # 8 vCPU, 32 GB
+          min_nodes: 8
+          max_nodes: 8
+        - instance_type: g4dn.xlarge  # 1 T4 GPU, 4 vCPU, 16 GB
+          min_nodes: 4
+          max_nodes: 4
+
+# Path to a local directory or a remote URI to a .zip file (S3, GS, HTTP) that
+# will be the working directory for the job. The files in the directory will be
+# automatically uploaded to the job environment in Anyscale.
+working_dir: .
+
+env_vars:
+  GPU_STAGE_CONCURRENCY: "4"
+  GPU_BATCH_SIZE: "32"
+
+# The script to run in your job. You can also do "uv run main.py" if you have a
+# pyproject.toml file in your working_dir.
+entrypoint: uv run python pipeline.py
+
+# If there is an error, do not retry.
+max_retries: 0
+
+# Kill the job after 4 hours to control costs.
+timeout_s: 14400
