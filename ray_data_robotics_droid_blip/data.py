@@ -36,7 +36,17 @@ HDF5_KEYS_NEEDED = (
 # ---------------------------------------------------------------------------
 
 # Anonymous (unsigned) S3 access — the DROID bucket is publicly readable.
-S3_TRANSPORT = {"client_kwargs": {"config": Config(signature_version=UNSIGNED)}}
+# We build a dedicated boto3 session with no credentials so that the
+# Anyscale node's IAM role is never consulted (its policy may lack
+# s3:GetObject on the public bucket).
+import boto3
+
+_ANON_SESSION = boto3.Session(
+    aws_access_key_id="",
+    aws_secret_access_key="",
+)
+_ANON_CLIENT = _ANON_SESSION.client("s3", config=Config(signature_version=UNSIGNED))
+S3_TRANSPORT = {"client": _ANON_CLIENT}
 
 
 def open_file(path: str, mode: str = "rb"):

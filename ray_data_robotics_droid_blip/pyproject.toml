@@ -27,7 +27,7 @@ dependencies = [
     "h5py",
 
     # Image encoding / resize
-    "pillow",
+    "pillow>=11.1.0",
     "numpy",
 ]
 
