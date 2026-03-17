@@ -30,6 +30,6 @@ ENV CUDA_HOME="/usr/local/cuda"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/ray/.local/bin:${PATH}"
 
-# Install SGLang from main branch
+# Install SGLang from fix/ray-serve-multi-node branch (PR #20722)
 RUN uv pip install --system \
-    "sglang[all] @ git+https://github.com/sgl-project/sglang.git@main#subdirectory=python"
+    "sglang[all] @ git+https://github.com/xyuzh/sglang.git@fix/ray-serve-multi-node#subdirectory=python"
