@@ -1,98 +1,156 @@
 """
-pipeline.py — DROID → BLIP captioning pipeline (Ray Data).
+DROID → BLIP Captioning Pipeline (Ray Data)
+============================================
 
-Reads a copy of the DROID Raw 1.0.1 dataset from a public S3 bucket,
-generates image captions for each wrist-camera frame using BLIP-large
-on GPU, and writes annotated parquet partitioned by episode uuid.
+This script demonstrates a **heterogeneous Ray Data pipeline** that reads
+video files from a public S3 bucket, decodes the first frame of each,
+generates an image caption using a vision-language model on GPU, and writes
+the results to Parquet.
 
-This is a heterogeneous pipeline: CPU workers handle I/O-bound data
-loading while GPU workers run model inference. Ray Data manages
-backpressure between stages automatically.
+The dataset is DROID Raw 1.0.1 — a large-scale robotics manipulation
+dataset with ~59K episodes across 13 research labs.
 
-See: https://docs.ray.io/en/latest/data/overview.html
+Key Ray Data concepts demonstrated
+-----------------------------------
+1. **read_binary_files** — parallel I/O from S3, one file per task.
+2. **map (stateless)** — lightweight per-row transforms on CPU workers.
+3. **map_batches (stateful, GPU)** — actor-pool pattern for model inference.
+   The model loads once per actor in __init__; __call__ runs per batch.
+4. **Streaming execution** — all stages run concurrently with automatic
+   backpressure. No stage waits for the previous one to finish.
 
-Stages
-------
-  [manifest parquet]
-      │
-      ▼  flat_map(episode_to_training_rows)  — CPU
-         Resolve S3 paths, stream HDF5 + MP4; yield one row per timestep.
-      │
-      ▼  map_batches(BlipCaptionStage)  — GPU
-         BLIP-large fp16: image captioning for each wrist-camera frame.
-      │
-      ▼  write_parquet, partitioned by uuid
+Pipeline
+--------
+    ┌─────────────────────────────────────────────────────┐
+    │  read_binary_files(mp4_paths)          [CPU, I/O]   │
+    │  Download each MP4 from S3 in parallel.             │
+    ├─────────────────────────────────────────────────────┤
+    │  map(attach_meta)                      [CPU]        │
+    │  Look up episode uuid + task from manifest.         │
+    ├─────────────────────────────────────────────────────┤
+    │  map(decode_first_frame)               [CPU]        │
+    │  Decode the first video frame with PyAV.            │
+    ├─────────────────────────────────────────────────────┤
+    │  map_batches(BlipCaptionStage)         [GPU]        │
+    │  BLIP-large fp16 captioning, batched across GPUs.   │
+    ├─────────────────────────────────────────────────────┤
+    │  drop_columns(["frame"])                            │
+    │  Remove the raw image; keep uuid, task, caption.    │
+    ├─────────────────────────────────────────────────────┤
+    │  write_parquet(OUTPUT)                              │
+    │  Materialize the full pipeline and write results.   │
+    └─────────────────────────────────────────────────────┘
 
 Usage
 -----
-  uv run python pipeline.py
+    # Smoke test with 100 episodes on 4 GPUs:
+    GPU_STAGE_CONCURRENCY=4 uv run python pipeline.py
+
+    # Full dataset:
+    NUM_EPISODES=None  (edit below)
 """
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import time
 from typing import Any
 
+import av
 import numpy as np
+import pyarrow.parquet as pq
 import ray
 import ray.data
 import torch
 from PIL import Image
-
-from data import episode_to_training_rows
+from pyarrow.fs import S3FileSystem
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Configuration
+# ============================================================================
 
-MANIFEST       = "episodes_droid_v1.0.1_s3.parquet"
-OUTPUT         = "/mnt/cluster_storage/droid-annotated"
-NUM_EPISODES: int | None = None  # set to an int to limit for smoke tests
+# -- Dataset --
+MANIFEST = "episodes_droid_v1.0.1_s3.parquet"
+DATASET_BUCKET = "s3://anyscale-public-droid-dataset"
+DATASET_PREFIX = "droid/1.0.1"
 
+# -- Output --
+OUTPUT = "/mnt/cluster_storage/droid-annotated"
+
+# -- Limits --
+# Set to an integer to cap the number of episodes (useful for smoke tests).
+# Set to None to process the full dataset.
+NUM_EPISODES: int | None = None
+
+# -- Model --
 MODEL_NAME: str = "Salesforce/blip-image-captioning-large"
-CUSTOM_ENV_VAR: str = "hello"  # example: propagated to all workers via runtime_env
 
-# -- CPU data-loading stage --
-# Fractional CPUs per flat_map worker. Episode loading is I/O-bound (S3
-# download + video decode), so each worker needs little CPU. Setting < 1
-# lets Ray pack more loaders per node, increasing S3 parallelism.
+# -- Runtime environment --
+# Example: propagate a custom env var to all Ray workers.
+# See: https://docs.ray.io/en/latest/ray-core/handling-dependencies.html
+CUSTOM_ENV_VAR: str = "hello"
+
+# -- CPU stage resources --
+# Each CPU map worker needs little CPU since the work is I/O-bound
+# (downloading from S3 + video decoding). Setting < 1 lets Ray schedule
+# more workers per node, increasing download parallelism.
 # See: https://docs.ray.io/en/latest/data/transforming-data.html#configuring-parallelism
 CPU_LOADER_NUM_CPUS: float = 0.5
 
-# -- GPU inference stage --
-GPU_WORKER_NUM_GPUS: float = 1.0
-# Number of GPU actors. Ray Data scales inference across this many actors.
-# Override via GPU_STAGE_CONCURRENCY env var; defaults to 2.
+# -- GPU stage resources --
+# Number of BLIP actors. Each actor claims one GPU and processes batches
+# of images. Override at runtime: GPU_STAGE_CONCURRENCY=8 uv run ...
+# See: https://docs.ray.io/en/latest/data/transforming-data.html#stateful-transforms
 GPU_CONCURRENCY: int = int(os.environ.get("GPU_STAGE_CONCURRENCY", "2"))
-# Rows per GPU batch. Increase until VRAM is ~80% utilized; BLIP-large fp16
-# uses ~1.5 GB, so 32–64 fits comfortably on most GPUs.
+GPU_WORKER_NUM_GPUS: float = 1.0
+
+# Rows per GPU batch. Increase until VRAM is ~80% utilized.
+# BLIP-large fp16 uses ~1.5 GB model weight; batch of 32 images fits
+# comfortably on most GPUs.
 GPU_BATCH_SIZE: int = int(os.environ.get("GPU_BATCH_SIZE", "32"))
 
 
-# ---------------------------------------------------------------------------
-# GPU stage: BLIP captioning
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Stage 1 (CPU): Decode first video frame
+# ============================================================================
+# This is a *stateless* map function — Ray Data calls it once per row.
+# It receives the raw MP4 bytes downloaded by read_binary_files and
+# returns a single decoded RGB frame (HWC uint8 numpy array).
+
+
+def decode_first_frame(row: dict[str, Any]) -> dict[str, Any]:
+    """Decode the first RGB frame from in-memory MP4 bytes."""
+    buf = io.BytesIO(row["bytes"])
+    frame = None
+    with av.open(buf, mode="r") as container:
+        for f in container.decode(video=0):
+            frame = f.to_ndarray(format="rgb24")
+            break
+    row["frame"] = frame
+    del row["bytes"]
+    return row
+
+
+# ============================================================================
+# Stage 2 (GPU): BLIP image captioning
+# ============================================================================
+# This is a *stateful* map class — Ray Data creates a pool of actors
+# (one per GPU). __init__ runs once to load the model; __call__ is
+# invoked on each batch. This avoids reloading the model per batch.
+#
+# See: https://docs.ray.io/en/latest/data/transforming-data.html#stateful-setup-with-actors
 
 
 class BlipCaptionStage:
-    """Ray Data actor-class callable for GPU inference.
-
-    When passed as a class to map_batches(), Ray Data creates a pool of actors
-    (one per GPU).  __init__ runs once per actor to load the model;
-    __call__ is invoked per batch.  This pattern avoids reloading the model
-    for every batch.
-
-    See: https://docs.ray.io/en/latest/data/transforming-data.html#stateful-setup-with-actors
-    """
+    """BLIP-large image captioning actor for Ray Data map_batches."""
 
     def __init__(self, model_name: str = MODEL_NAME) -> None:
-        # Import here so transformers is only loaded on GPU workers, not the driver.
         from transformers import BlipForConditionalGeneration, BlipProcessor
 
         log.info("Loading BLIP model: %s …", model_name)
@@ -100,9 +158,13 @@ class BlipCaptionStage:
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.processor = BlipProcessor.from_pretrained(model_name)
-        self.model = BlipForConditionalGeneration.from_pretrained(
-            model_name, torch_dtype=torch.float16,
-        ).to(self.device).eval()
+        self.model = (
+            BlipForConditionalGeneration.from_pretrained(
+                model_name, torch_dtype=torch.float16
+            )
+            .to(self.device)
+            .eval()
+        )
 
         log.info(
             "BLIP loaded on %s in %.1fs  (fp16, %d params).",
@@ -112,9 +174,12 @@ class BlipCaptionStage:
         )
 
     def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
-        """Process one batch of rows. Ray Data calls this with a dict of
-        column-name → list[value], not a single row at a time."""
-        images_raw: list[np.ndarray] = batch["wrist_frame"]
+        """Caption a batch of images.
+
+        Ray Data calls this with a dict of column → list[value],
+        not one row at a time. This enables efficient batched GPU inference.
+        """
+        images_raw: list[np.ndarray] = batch["frame"]
         n = len(images_raw)
         t0 = time.monotonic()
 
@@ -126,7 +191,9 @@ class BlipCaptionStage:
             ).to(self.device, torch.float16)
             generated_ids = self.model.generate(**inputs, max_new_tokens=128)
 
-        batch["caption"] = self.processor.batch_decode(generated_ids, skip_special_tokens=True)
+        batch["caption"] = self.processor.batch_decode(
+            generated_ids, skip_special_tokens=True
+        )
 
         elapsed = time.monotonic() - t0
         log.info(
@@ -136,33 +203,91 @@ class BlipCaptionStage:
         return batch
 
 
-# ---------------------------------------------------------------------------
-# Pipeline
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Prepare: read manifest and resolve S3 paths
+# ============================================================================
+# The manifest is a small Parquet file (~59K rows) listing every episode.
+# We read it on the driver to build:
+#   1. A list of MP4 paths to pass to read_binary_files.
+#   2. A path → {uuid, task} lookup so we can attach metadata later.
 
-# Connect to the existing Ray cluster (started by Anyscale or `ray start`).
-# runtime_env propagates env vars, pip packages, or working_dir to all workers.
-# See: https://docs.ray.io/en/latest/ray-core/handling-dependencies.html#runtime-environments
+log.info("Reading manifest: %s", MANIFEST)
+manifest = pq.read_table(MANIFEST)
+s3_base = f"{DATASET_BUCKET}/{DATASET_PREFIX}/"
+
+mp4_paths: list[str] = []
+path_to_meta: dict[str, dict[str, str]] = {}
+
+for i in range(len(manifest)):
+    rel = manifest.column("ext1_mp4_path")[i].as_py()
+    if not rel:
+        continue
+    full = rel if "://" in rel else s3_base + rel
+    mp4_paths.append(full)
+    path_to_meta[full] = {
+        "uuid": manifest.column("uuid")[i].as_py(),
+        "task": manifest.column("task")[i].as_py(),
+    }
+
+if NUM_EPISODES is not None:
+    mp4_paths = mp4_paths[:NUM_EPISODES]
+
+log.info("Processing %d episodes (of %d total).", len(mp4_paths), len(manifest))
+
+
+# ============================================================================
+# Connect to the Ray cluster
+# ============================================================================
+# ray.init connects to an existing cluster (started by Anyscale or `ray start`).
+# runtime_env propagates environment variables to every worker.
+
 ray.init(
     address="auto",
     ignore_reinit_error=True,
     runtime_env={"env_vars": {"CUSTOM_ENV_VAR": CUSTOM_ENV_VAR}},
 )
 
-# read_parquet returns a lazy Dataset — no data is read until execution.
-# See: https://docs.ray.io/en/latest/data/loading-data.html
-ds = ray.data.read_parquet(MANIFEST)
-if NUM_EPISODES is not None:
-    ds = ds.limit(NUM_EPISODES)
+# Put the metadata lookup in the Ray object store so all workers can
+# access it without serializing it per task.
+meta_ref = ray.put(path_to_meta)
+
+
+def attach_meta(row: dict[str, Any]) -> dict[str, Any]:
+    """Look up episode uuid and task from the manifest by file path."""
+    meta = ray.get(meta_ref)
+    info = meta.get(row["path"], {})
+    row["uuid"] = info.get("uuid", "")
+    row["task"] = info.get("task", "")
+    del row["path"]
+    return row
+
+
+# ============================================================================
+# Build and run the pipeline
+# ============================================================================
+# Everything below is lazy — no work happens until write_parquet() is called.
+# Ray Data then executes all stages as a streaming pipeline with automatic
+# backpressure between CPU and GPU stages.
+
+# Anonymous S3 filesystem for the public DROID bucket.
+s3_fs = S3FileSystem(anonymous=True, region="us-east-2")
 
 ds = (
-    ds
-    # flat_map: 1 episode → N timestep rows (CPU, I/O-bound).
-    # Ray Data runs this on CPU workers and streams results to the GPU stage.
-    # num_cpus < 1 lets Ray pack many loaders per node for higher S3 throughput.
-    .flat_map(episode_to_training_rows, num_cpus=CPU_LOADER_NUM_CPUS)
-    # map_batches with a class + num_gpus: creates a pool of GPU actors.
-    # Each actor gets batch_size rows at a time as a dict of columns.
+    # --- Read: download MP4 files from S3 in parallel ---
+    # Each file becomes one row with columns: bytes, path.
+    # See: https://docs.ray.io/en/latest/data/loading-data.html
+    ray.data.read_binary_files(
+        mp4_paths,
+        filesystem=s3_fs,
+        include_paths=True,
+        ignore_missing_paths=True,
+    )
+    # --- CPU: attach episode metadata from manifest ---
+    .map(attach_meta)
+    # --- CPU: decode first video frame from MP4 bytes ---
+    .map(decode_first_frame, num_cpus=CPU_LOADER_NUM_CPUS)
+    # --- GPU: generate captions with BLIP-large ---
+    # ActorPoolStrategy creates a fixed pool of GPU actors.
     # See: https://docs.ray.io/en/latest/data/transforming-data.html#computing-over-batches
     .map_batches(
         BlipCaptionStage,
@@ -170,8 +295,12 @@ ds = (
         num_gpus=GPU_WORKER_NUM_GPUS,
         concurrency=GPU_CONCURRENCY,
     )
+    # --- Drop the raw image; keep only uuid, task, caption ---
+    .drop_columns(["frame"])
 )
 
 # write_parquet triggers execution of the full pipeline.
 # Everything above is lazy — this call materializes the DAG.
-ds.write_parquet(OUTPUT, partition_cols=["uuid"])
+ds.write_parquet(OUTPUT)
+
+log.info("Done. Output written to %s", OUTPUT)

@@ -8,9 +8,8 @@ Demonstrates **heterogeneous Ray Data pipelines** — CPU workers stream data fr
 
 | File | Description |
 |---|---|
-| `pipeline.py` | Main entry point — pipeline wiring, GPU stage, and config knobs |
-| `data.py` | CPU stage — S3 I/O, HDF5 + MP4 reading, per-timestep row expansion |
-| `job.yaml` | Anyscale job config — multi-region compute, env vars, T4 GPUs |
+| `pipeline.py` | Main entry point — pipeline wiring, CPU/GPU stages, and config knobs |
+| `job.yaml` | Anyscale job config — compute, env vars, T4 GPUs |
 | `episodes_droid_v1.0.1_s3.parquet` | Pre-built manifest of DROID episodes and their S3 paths |
 | `pyproject.toml` | Dependencies (managed by `uv`) |
 
@@ -29,14 +28,13 @@ uv run python pipeline.py
 
 ### Run on Anyscale
 
-Submit as a job using the included `job.yaml`, which provisions T4 GPU workers
-across multiple AWS regions (us-east-1, us-west-1) with automatic fallback:
+Submit as a job using the included `job.yaml`, which provisions T4 GPU workers:
 
 ```bash
-anyscale job submit -f job.yaml
+uv run anyscale job submit -f job.yaml
 
 # Override GPU concurrency or batch size via env vars
-anyscale job submit -f job.yaml --env GPU_STAGE_CONCURRENCY=8 --env GPU_BATCH_SIZE=64
+uv run anyscale job submit -f job.yaml --env GPU_STAGE_CONCURRENCY=8 --env GPU_BATCH_SIZE=64
 ```
 
 ## Configuration
@@ -45,7 +43,7 @@ Key settings in `pipeline.py`:
 
 | Setting | Default | Description |
 |---|---|---|
-| `NUM_EPISODES` | `None` (all) | Limit episodes for testing |
+| `NUM_EPISODES` | `1000` | Limit episodes for testing (set to `None` for all) |
 | `MODEL_NAME` | `Salesforce/blip-image-captioning-large` | HuggingFace model ID |
 | `CPU_LOADER_NUM_CPUS` | `0.5` | Fractional CPUs per data-loading worker |
 | `GPU_BATCH_SIZE` | `32` | Frames per GPU batch (env: `GPU_BATCH_SIZE`) |
