@@ -1,0 +1,36 @@
+# Anyscale Job: SGLang Offline (Batch) Inference
+#
+# Configuration: TP=4, PP=2 across 2 nodes (4 GPUs per node)
+#
+# Submit:
+#   anyscale job submit -f job.yaml
+
+name: sglang-offline-inference
+
+containerfile: ./Dockerfile
+
+compute_config:
+  head_node:
+    required_resources:
+      CPU: 8
+      memory: 32Gi
+  worker_nodes:
+    - required_resources:
+        CPU: 48
+        memory: 128Gi
+        GPU: 4
+      required_labels:
+        ray.io/accelerator-type: "A10G"
+      min_nodes: 2
+      max_nodes: 2
+
+env_vars:
+  # Ray normally sets CUDA_VISIBLE_DEVICES for each worker process.
+  # Disable this because SGLang assumes CUDA_VISIBLE_DEVICES lists all GPUs.
+  RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "1"
+
+working_dir: .
+
+entrypoint: python driver_offline.py
+
+max_retries: 0
