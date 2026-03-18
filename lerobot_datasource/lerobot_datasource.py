@@ -1,50 +1,42 @@
 """Ray Data datasource for LeRobot v3 robotics datasets.
 
-Reads LeRobot-format datasets from local disk or cloud storage (GCS/S3) into
-Ray Data.  Supports four parallelism strategies that trade off task-level
-parallelism against video-file deduplication and memory.
+A LeRobot dataset is a set of **parallel streams of equal length**: one data
+stream (parquet rows) and one video stream per camera.  Every stream has
+``total_frames`` entries.  A **slice** is a ``[start_row, end_row)`` range
+applied uniformly to all streams.
 
-Typical usage::
+Grouping strategies decide how to partition ``[0, total_frames)`` into slices.
+Episode boundaries, file-group boundaries, chain components, and arbitrary
+N-row blocks are all just slices — the streams resolve which physical files
+they need internally.
 
-    import ray
-    from lerobot_datasource import LeRobotDatasource, ParallelismMode
+Data model (relevant columns)
+-----------------------------
+::
 
-    ds = ray.data.read_datasource(LeRobotDatasource(root="/data/my_dataset"))
-    ds = ray.data.read_datasource(LeRobotDatasource(
-        root="gs://bucket/dataset",
-        parallelism_mode=ParallelismMode.SEQUENTIAL,
-    ))
+    Row (one per video frame):
+        index            int64   global 0-based row id across the entire dataset
+        episode_index    int64   which episode this row belongs to
+        frame_index      int64   0-based position within its episode
+        timestamp        float64 time in seconds within its episode
 
-Rationale
----------
-``LeRobotDataset`` (the upstream PyTorch dataset) loads one frame at a time
-from local disk and has no support for cloud object storage or parallel
-ingestion.  Training pipelines that store datasets on GCS or S3 must either
-download everything upfront or build custom I/O.  This datasource fills that
-gap: it reads parquet and mp4 files directly from any fsspec-compatible
-filesystem and exposes them as a Ray Data dataset, enabling parallel,
-distributed ingestion without a local copy.
+    Episode metadata (one per episode, in meta/episodes/*.parquet):
+        episode_index        int64   episode id (= row position in the table)
+        dataset_from_index   int64   first global row index (inclusive)
+        dataset_to_index     int64   last global row index (exclusive)
+        data/chunk_index     int64   which parquet chunk file holds this episode's data
+        data/file_index      int64   file index within the chunk
+        videos/<key>/chunk_index   int64   video chunk for camera <key>
+        videos/<key>/file_index    int64   video file index for camera <key>
+        videos/<key>/from_timestamp float64 seek offset into the video file
 
-LeRobot v3 stores video frames in mp4 files that each cover a fixed chunk of
-consecutive episodes — not individual episodes.  Multiple episodes therefore
-share the same video file, and the episodes within a file are laid out
-sequentially from the start.  This has a direct impact on parallelisation:
-splitting the dataset naïvely by episode causes the same video file to be
-opened, seeked, and decoded independently by many workers, multiplying cloud
-reads and decode overhead proportionally.
+    Relationship:
+        index == dataset_from_index[episode_index] + frame_index
 
-The key insight is that episodes sharing a video file can be grouped into
-the same read task.  Because all cameras follow the same chunking schedule, a
-*file group* — the set of video files referenced by one episode — is identical
-for every episode in the same chunk.  Assigning one task per unique file group
-significantly reduces the number of mp4 opens compared to per-episode splitting
-while still producing one task per chunk, preserving meaningful parallelism.
-This is the default strategy.
-
-Parallelism strategies
-----------------------
+Grouping strategies
+-------------------
 +---------------+------------------+------------------------------------+
-| Mode          | Tasks created    | Best for                           |
+| Mode          | Groups created   | Best for                           |
 +===============+==================+====================================+
 | ``episode``   | one per episode  | small local datasets; maximum      |
 |               |                  | parallelism regardless of I/O cost |
@@ -59,26 +51,45 @@ Parallelism strategies
 | ``sequential``| one (total)      | cloud datasets where peak memory   |
 |               |                  | must be minimised over throughput  |
 +---------------+------------------+------------------------------------+
+| ``row_block`` | ceil(total / N)  | fixed-size blocks of N rows;       |
+|               |                  | set via ``group_size`` argument    |
++---------------+------------------+------------------------------------+
 
-Output schema (one row per frame)
-----------------------------------
-Parquet columns (pass-through from data files):
-  ``observation.state``   list<float>   — robot proprioception
-  ``action``              list<float>   — commanded joint / EE action
-  ``timestamp``           float64       — time within episode (seconds)
-  ``frame_index``         int64         — 0-based index within episode
-  ``episode_index``       int64         — global episode identifier
-  ``index``               int64         — global frame identifier
-  ``task_index``          int64         — index into the task description table
-  *(dataset-specific)*    varies        — e.g. ``next.reward``, ``next.done``
+Architecture overview
+---------------------
+::
 
-Appended columns:
-  ``<video_key>``         fixed_shape_tensor[uint8, (H, W, 3)]
-                          — one column per camera, decoded from mp4 via PyAV.
-                          Layout is **HWC uint8 [0, 255]** (contrast with
-                          ``LeRobotDataset`` which returns CHW float32 [0, 1]).
-  ``task``                string — human-readable task description looked up
-                          from ``meta/tasks.parquet`` by ``task_index``.
+    LeRobotDatasource              (public API — Ray Data Datasource)
+        │
+        ▼
+    SliceStrategy                  (base class: slices() → build())
+        │  subclasses: Episode, FileGroup, Chain, Sequential, FixedRowBlock
+        │
+        │  slices() returns [(start_row, end_row), ...]
+        │  build() merges slices down to Ray parallelism target
+        │
+        ▼
+    LeRobotReadTask                (one per merged slice)
+        │
+        ▼
+    SampleStream                   (orchestrates streams for a slice)
+        ├── LowDimStream           (reads parquet rows for [start, end))
+        └── VideoStream            (reads video frames for [start, end))
+
+Typical usage::
+
+    import ray
+    from lerobot_datasource import LeRobotDatasource, GroupingMode
+
+    # Default file_group mode
+    ds = ray.data.read_datasource(LeRobotDatasource(root="/data/my_dataset"))
+
+    # Fixed 1024-row blocks
+    ds = ray.data.read_datasource(LeRobotDatasource(
+        root="gs://bucket/dataset",
+        grouping_mode=GroupingMode.ROW_BLOCK,
+        group_size=1024,
+    ))
 """
 
 import enum
@@ -98,17 +109,18 @@ from ray.data.block import BlockMetadata
 from ray.data.context import DataContext
 from ray.data.datasource import Datasource
 from ray.data.datasource.datasource import ReadTask
+from ray.data.extensions import ArrowVariableShapedTensorArray
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Dataset metadata
+# Metadata
 # ---------------------------------------------------------------------------
 
 
 class LeRobotDatasourceMetadata:
-    """Lightweight metadata for the datasource
+    """Lightweight metadata for the datasource.
 
     Rationale: Lerobot Dataset v3.0 supports hf hub and local datasets but not
     cloud storage (e.g. gs:// or s3://) This class allows that.
@@ -127,9 +139,6 @@ class LeRobotDatasourceMetadata:
     def __init__(self, root: str) -> None:
         root = root.rstrip("/")
         self.root = root
-        # url_to_fs is the fsspec entry point that resolves the scheme and
-        # returns a filesystem object + the scheme-stripped root path.
-        # This is what lets the same code work for local paths, gs://, and s3://.
         fs, fs_root = fsspec.core.url_to_fs(root)
 
         self.info = self._fetch_info(fs, fs_root)
@@ -164,19 +173,12 @@ class LeRobotDatasourceMetadata:
         return info
 
     def _fetch_stats(self, fs: Any, fs_root: str) -> dict[str, dict]:
-        """Load meta/stats.json; return dataset-wide normalisation statistics.
-
-        Contains min, max, mean, std, and quantiles for each scalar feature column.
-        Useful for building normalisation transforms in VLA fine-tuning pipelines.
-        """
+        """Load meta/stats.json; return dataset-wide normalisation statistics."""
         with fs.open(f"{fs_root}/meta/stats.json", "r") as f:
             return json.load(f)
 
     def _fetch_episodes(self, fs: Any, fs_root: str) -> pa.Table:
         """Load meta/episodes/**/*.parquet; return the concatenated table."""
-        # Episode metadata is sharded across multiple parquet files for large datasets.
-        # Each row describes one episode: its chunk/file indices for data and every
-        # video camera, plus its timestamp range within the dataset.
         ep_files = sorted(fs.glob(f"{fs_root}/meta/episodes/**/*.parquet"))
         if not ep_files:
             raise FileNotFoundError(
@@ -187,8 +189,6 @@ class LeRobotDatasourceMetadata:
 
     def _fetch_tasks(self, fs: Any, fs_root: str) -> dict[int, str]:
         """Load meta/tasks.parquet; return a task_index → task string mapping."""
-        # tasks.parquet maps integer task_index → human-readable instruction string
-        # (e.g. "pick up the red block"). The column name varies by dataset version.
         table = pq.read_table(fs.open(f"{fs_root}/meta/tasks.parquet", "rb"))
         if "task" in table.column_names:
             task_col = "task"
@@ -216,19 +216,11 @@ class LeRobotDatasourceMetadata:
 
     @property
     def estimated_row_size_bytes(self) -> int:
-        """Estimated in-memory size of one fully-decoded frame row (bytes).
-
-        Sums scalar column bytes (``np.prod(shape) * itemsize`` for each
-        non-video feature in ``info.json``) and decoded video frame bytes
-        (HWC uint8, 1 byte per element, per camera).  String columns have no
-        fixed width and are skipped.  Used to populate ``BlockMetadata.size_bytes``
-        without any cloud I/O.
-        """
+        """Estimated in-memory size of one fully-decoded frame row (bytes)."""
         features = self.info.get("features", {})
         total = 0
         for feat in features.values():
             if feat.get("dtype") == "video":
-                # Video frames: HWC uint8 — shape is [H, W, C], 1 byte per element
                 shape = feat.get("shape")
                 if shape:
                     total += int(np.prod(shape))
@@ -237,7 +229,7 @@ class LeRobotDatasourceMetadata:
                 try:
                     total += int(np.prod(shape)) * np.dtype(feat["dtype"]).itemsize
                 except (TypeError, KeyError):
-                    continue  # string or unknown dtype
+                    continue
         return total
 
     @property
@@ -259,42 +251,94 @@ class LeRobotDatasourceMetadata:
         """Resolve the full path to a data parquet file."""
         return f"{self.root}/{self.info['data_path'].format(chunk_index=chunk_index, file_index=file_index)}"
 
-    def get_episode(self, ep_idx: int) -> dict:
-        """Return one episode's metadata dict by its ``episode_index``.
+    def episodes_for_row_range(self, start_row: int, end_row: int) -> tuple[int, int]:
+        """Return ``(start_ep, end_ep)`` — the minimal episode range covering ``[start_row, end_row)``.
 
-        LeRobot v3 enforces 0-based sequential episode indices, so ep_idx
-        equals the row position in the episodes table.
+        An episode overlaps the row range when its row span intersects it::
+
+            dataset_from_index < end_row  AND  dataset_to_index > start_row
+
+        Returns a half-open episode range suitable for slicing the episodes table.
         """
+        from_idx = self.episodes.column("dataset_from_index")
+        to_idx = self.episodes.column("dataset_to_index")
+        mask = pc.and_(  # type: ignore[attr-defined]
+            pc.less(from_idx, end_row),  # type: ignore[attr-defined]
+            pc.greater(to_idx, start_row),  # type: ignore[attr-defined]
+        )
+        indices = pc.filter(  # type: ignore[attr-defined]
+            self.episodes.column("episode_index"), mask
+        ).to_pylist()
+        if not indices:
+            raise ValueError(
+                f"No episodes overlap the row range [{start_row}, {end_row}). "
+                f"Dataset has {self.total_frames} total frames across "
+                f"{self.total_episodes} episodes."
+            )
+        return (indices[0], indices[-1] + 1)
+
+    def get_episode(self, ep_idx: int) -> dict:
+        """Return one episode's metadata dict by its ``episode_index``."""
         return self.episodes.slice(ep_idx, 1).to_pylist()[0]
 
 
 # ---------------------------------------------------------------------------
-# Segment iterators
+# Video stream
 # ---------------------------------------------------------------------------
 
 
-class DataSegmentIterator:
-    """Yields one-row :class:`pa.Table` slices for a sequence of parquet files.
+class VideoStream:
+    """Decoded video frames for a single camera over a row range.
 
-    Each segment is a ``(chunk_index, file_index)`` file key.  Rows outside
-    ``[start_episode, end_episode)`` are filtered out; within that range
-    episodes are read in natural row order.
+    An independently iterable stream: given ``[start_row, end_row)`` it
+    resolves which episodes overlap, which mp4 files to open, and the
+    per-episode seek offsets — then yields one decoded RGB frame per row
+    via ``__next__``.
+
+    Timestamp computation uses the episodes table and ``fps`` from
+    ``info.json``::
+
+        frame_index = global_index - dataset_from_index
+        timestamp   = frame_index / fps
+        target_ts   = from_timestamp + timestamp
+
+    This makes VideoStream fully independent of the parquet data stream,
+    enabling SampleStream to be a simple ``zip(LowDimStream, *VideoStreams)``.
     """
 
     def __init__(
-        self, ds_info: LeRobotDatasourceMetadata, start_episode: int, end_episode: int
+        self,
+        ds_meta: LeRobotDatasourceMetadata,
+        vid_key: str,
+        start_row: int,
+        end_row: int,
     ) -> None:
-        self._ds_info = ds_info
-        self._start = start_episode
-        self._end = end_episode
-        # Slice the episodes table to this task's range and extract the two key columns.
-        # Because episode_index == row position, slice(start, length) is O(1).
-        ep_slice = ds_info.episodes.slice(start_episode, end_episode - start_episode)
-        chunks = ep_slice.column("data/chunk_index").combine_chunks()
-        files = ep_slice.column("data/file_index").combine_chunks()
+        self._fs, _fs_root = fsspec.core.url_to_fs(ds_meta.root)
+        self._is_local = self._fs.protocol == "file"
+        _root_prefix = ds_meta.root
+        self._current_container: Any = None
+
+        self._fps: float = ds_meta.info["fps"]
+        self._current_index = start_row
+        self._end_row = end_row
+
+        start_ep, end_ep = ds_meta.episodes_for_row_range(start_row, end_row)
+        ep_slice = ds_meta.episodes.slice(start_ep, end_ep - start_ep)
         n = len(ep_slice)
-        # Mark the first row and an y row where either index differs from the previous
-        # row as a segment boundary, then filter both columns to those rows.
+
+        # Episode schedule: (dataset_from_index, dataset_to_index, from_timestamp).
+        # Used by __next__ to compute the absolute video timestamp for each row.
+        from_indices = ep_slice.column("dataset_from_index").to_pylist()
+        to_indices = ep_slice.column("dataset_to_index").to_pylist()
+        from_ts_values = ep_slice.column(f"videos/{vid_key}/from_timestamp").to_pylist()
+        self._ep_schedule: list[tuple[int, int, float]] = list(
+            zip(from_indices, to_indices, from_ts_values)
+        )
+        self._ep_cursor = 0
+
+        # Consecutive-dedup over video chunk/file columns.
+        chunks = ep_slice.column(f"videos/{vid_key}/chunk_index").combine_chunks()
+        files = ep_slice.column(f"videos/{vid_key}/file_index").combine_chunks()
         is_new = (
             pa.concat_arrays(
                 [
@@ -308,125 +352,101 @@ class DataSegmentIterator:
             if n > 0
             else pa.array([], type=pa.bool_())
         )
-        self._segments: list[tuple[int, int]] = list(
-            zip(
-                pc.filter(chunks, is_new).to_pylist(),  # type: ignore[attr-defined]
-                pc.filter(files, is_new).to_pylist(),  # type: ignore[attr-defined]
-            )
-        )
 
-    def __iter__(self):
-        """Yield one row per frame, in episode order across all segments."""
-        ds_info = self._ds_info
-        for chunk_idx, file_idx in self._segments:
-            path = ds_info.data_file_path(chunk_idx, file_idx)
-            fs, fs_path = fsspec.core.url_to_fs(path)
-            pq_table = pq.read_table(fs.open(fs_path, "rb"))
-            # A parquet file can span more episodes than the [start, end) range
-            # assigned to this task (e.g. when two tasks share a boundary file).
-            # Filter to only the rows belonging to this task's episode range so
-            # that frames are never emitted twice across adjacent tasks.
-            ep_col = pq_table.column("episode_index")
-            pq_table = pq_table.filter(  # type: ignore[attr-defined]
-                pc.and_(
-                    pc.greater_equal(ep_col, self._start), pc.less(ep_col, self._end)
-                )  # type: ignore[attr-defined]
-            )
-            for i in range(pq_table.num_rows):
-                yield pq_table.slice(i, 1)
+        self._start_ts = from_ts_values[0] if n > 0 else 0.0
 
-
-class VideoSegmentIterator:
-    """Yields ``(frame, half_frame_duration)`` pairs for a sequence of video files.
-
-    Opens each file in turn, streaming frames until exhausted before moving to
-    the next.  ``start_ts`` is the seek target for the first file only; all
-    subsequent files begin at ts=0 by the sequential dataset layout invariant.
-
-    ``half_frame_duration`` is ``0.5 / fps`` in seconds, computed once per
-    container from the stream's time base and frame rate.  It is yielded
-    alongside each frame so :class:`EpisodeRangeReader` can advance to the
-    frame nearest a target timestamp without access to the container.
-    """
-
-    def __init__(
-        self,
-        ds_info: LeRobotDatasourceMetadata,
-        vid_key: str,
-        start_episode: int,
-        end_episode: int,
-    ) -> None:
-        # Resolve the filesystem once here so we don't pay url_to_fs overhead
-        # on every video open.  For cloud paths (gs://, s3://) url_to_fs
-        # returns the scheme-stripped path in _fs_root; for local paths the
-        # two values are effectively the same.
-        self._fs, _fs_root = fsspec.core.url_to_fs(ds_info.root)
-        self._is_local = self._fs.protocol == "file"
-        _root_prefix = ds_info.root  # strip this prefix to get fs-local path
-        self._start_ts = 0.0
-        self._current_container: Any = None
-        # Same consecutive-dedup logic as DataSegmentIterator but over video
-        # chunk/file columns.  The is_new mask finds segment boundaries in one
-        # vectorised pass; path construction then runs only over the unique files.
-        ep_slice = ds_info.episodes.slice(start_episode, end_episode - start_episode)
-        chunks = ep_slice.column(f"videos/{vid_key}/chunk_index").combine_chunks()
-        files = ep_slice.column(f"videos/{vid_key}/file_index").combine_chunks()
-        n = len(ep_slice)
-        is_new = pa.concat_arrays([
-            pa.array([True]),
-            pc.or_(  # type: ignore[attr-defined]
-                pc.not_equal(chunks.slice(1), chunks.slice(0, n - 1)),  # type: ignore[attr-defined]
-                pc.not_equal(files.slice(1), files.slice(0, n - 1)),  # type: ignore[attr-defined]
-            ),
-        ]) if n > 0 else pa.array([], type=pa.bool_())
-        if n > 0:
-            # from_timestamp of the first episode is the seek target inside the
-            # first mp4 file.  Subsequent files always start at ts=0.
-            self._start_ts = ep_slice.column(f"videos/{vid_key}/from_timestamp")[0].as_py()
-        # Convert the full URI to the fs-local path form the cached filesystem understands.
         self._fs_paths: list[str] = [
-            _fs_root + ds_info.video_file_path(vid_key, c, f)[len(_root_prefix):]
+            _fs_root + ds_meta.video_file_path(vid_key, c, f)[len(_root_prefix) :]
             for c, f in zip(
                 pc.filter(chunks, is_new).to_pylist(),  # type: ignore[attr-defined]
                 pc.filter(files, is_new).to_pylist(),  # type: ignore[attr-defined]
             )
         ]
 
-    def close(self) -> None:
-        """Close the currently open video container, if any."""
-        if self._current_container is not None:
-            self._current_container.close()
-            self._current_container = None
+        self._frame_iter = iter(self._raw_frames())
+        self._current_frame: Any = None
+        self._half_frame: float = 0.0
 
     def __iter__(self):
-        """Yield all frames in path order; close each container before the next."""
+        return self
+
+    def __next__(self) -> np.ndarray:
+        """Return the next decoded RGB frame, advancing by one row index."""
+        if self._current_index >= self._end_row:
+            raise StopIteration
+
+        idx = self._current_index
+
+        # Advance episode cursor if the current row has moved past the current episode.
+        while self._ep_cursor < len(self._ep_schedule) - 1:
+            _, ep_to, _ = self._ep_schedule[self._ep_cursor]
+            if idx < ep_to:
+                break
+            self._ep_cursor += 1
+
+        ep_from, _, from_ts = self._ep_schedule[self._ep_cursor]
+        frame_index = idx - ep_from
+        target_ts = from_ts + frame_index / self._fps
+
+        frame = self._advance_to_ts(target_ts)
+        self._current_index += 1
+        return frame
+
+    def _advance_to_ts(self, target_ts: float) -> np.ndarray:
+        """Advance the raw frame iterator to *target_ts* and return the RGB array."""
+        if self._current_frame is None:
+            self._current_frame, self._half_frame = next(self._frame_iter)
+
+        frame = self._current_frame
+        half_frame = self._half_frame
+
+        while True:
+            if frame.time is None:
+                logger.warning(
+                    "row=%d ts=%.4f: frame.time is None, skipping",
+                    self._current_index,
+                    target_ts,
+                )
+                self._current_frame, self._half_frame = next(self._frame_iter)
+                frame, half_frame = self._current_frame, self._half_frame
+                continue
+
+            if frame.time >= target_ts - half_frame:
+                break
+
+            self._current_frame, self._half_frame = next(self._frame_iter)
+            frame, half_frame = self._current_frame, self._half_frame
+
+        return frame.to_ndarray(format="rgb24")
+
+    def _raw_frames(self):
+        """Yield ``(frame, half_frame)`` pairs from all mp4 files in sequence."""
         for i, video_path in enumerate(self._fs_paths):
             self._current_container = self._open_container(video_path)
             try:
                 stream = self._current_container.streams.video[0]
                 assert stream.time_base is not None and stream.average_rate is not None
-                # Only seek within the first file: from_timestamp tells us where
-                # the first episode starts within the mp4.  Files beyond the first
-                # always begin at the episode boundary that starts the file, so no
-                # seek is needed — we just stream from the beginning.
                 if i == 0 and self._start_ts > 0:
                     self._current_container.seek(
                         int(self._start_ts / stream.time_base), stream=stream
                     )
-                # half_frame is half the inter-frame interval in seconds.  It is used
-                # by EpisodeRangeReader as a tolerance window: a decoded frame is
-                # considered the match for target_ts when frame.time ≥ target_ts − half_frame.
                 half_frame = 0.5 * float(stream.time_base / stream.average_rate)
                 for packet in self._current_container.demux(video=0):
                     try:
                         for frame in packet.decode():
                             yield frame, half_frame
-                    except av.InvalidDataError:  # type: ignore[attr-defined]
-                        # Corrupted or incomplete packets are silently skipped;
-                        # EpisodeRangeReader will advance to the next valid frame.
+                    except av.InvalidDataError:
                         continue
             finally:
-                self.close()
+                if self._current_container is not None:
+                    self._current_container.close()
+                    self._current_container = None
+
+    def close(self) -> None:
+        """Close the currently open video container, if any."""
+        if self._current_container is not None:
+            self._current_container.close()
+            self._current_container = None
 
     def _open_container(self, fs_path: str) -> Any:
         """Open a PyAV InputContainer for *fs_path* using the cached filesystem."""
@@ -436,109 +456,193 @@ class VideoSegmentIterator:
 
 
 # ---------------------------------------------------------------------------
-# Episode range reader
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-class EpisodeRangeReader:
-    """Yields fully-decoded frame rows for a contiguous range of episodes.
+def _batch_limits() -> tuple[int, int]:
+    """Return ``(min_batch_bytes, max_batch_bytes)`` from Ray Data's DataContext.
 
-    At construction, builds a :class:`DataSegmentIterator` and one
-    :class:`VideoSegmentIterator` per camera key.  ``__iter__`` drives the
-    data iterator row by row, advances each video iterator to the nearest
-    frame, and appends video and task columns before yielding.
+    Uses ``target_min_block_size`` and ``target_max_block_size`` so that
+    our batching aligns with the same thresholds Ray Data uses internally
+    for block sizing.  Falls back to sensible defaults if the context is
+    unavailable (e.g. during unit tests without a Ray runtime).
+    """
+    try:
+        ctx = DataContext.get_current()
+        return (
+            ctx.target_min_block_size,
+            ctx.target_max_block_size or 128 * 1024 * 1024,
+        )
+    except Exception:
+        return 1 * 1024 * 1024, 128 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# Data stream
+# ---------------------------------------------------------------------------
+
+# TODO: For small/medium datasets (most are much smaller than DROID's 27.6M
+# frames), optionally preload all data parquet into memory instead of reading
+# per-segment.  The episodes table (~9 MB even for DROID) already fits easily;
+# the data files will too for typical datasets.
+
+
+class LowDimStream:
+    """Parquet data stream for ``[start_row, end_row)``.
+
+    Yields one-row Arrow tables filtered by the global ``index`` column.
+    Resolves which parquet files to read internally via episode metadata.
+
+    Construction:
+        1. Find which episodes overlap ``[start_row, end_row)``
+        2. Extract those episodes' ``(data/chunk_index, data/file_index)`` pairs
+        3. Deduplicate consecutive identical pairs (adjacent episodes often
+           share the same parquet file)
+        4. Store the unique file keys as ``self._segments``
+
+    Iteration (per segment / parquet file):
+        1. Open the file via fsspec (works for local, gs://, s3://)
+        2. Push down row-group-level filters via ``pq.read_table(filters=...)``
+        3. Yield one row at a time as single-row Arrow tables
     """
 
     def __init__(
-        self, ds_info: LeRobotDatasourceMetadata, start_episode: int, end_episode: int
+        self, ds_meta: LeRobotDatasourceMetadata, start_row: int, end_row: int
     ) -> None:
-        self._ds_info = ds_info
-        self._data = DataSegmentIterator(ds_info, start_episode, end_episode)
-        self._video: dict[str, VideoSegmentIterator] = {
-            vid_key: VideoSegmentIterator(ds_info, vid_key, start_episode, end_episode)
-            for vid_key in ds_info.video_keys
-        }
+        self._ds_meta = ds_meta
+        self._start_row = start_row
+        self._end_row = end_row
+
+        start_ep, end_ep = ds_meta.episodes_for_row_range(start_row, end_row)
+        ep_slice = ds_meta.episodes.slice(start_ep, end_ep - start_ep)
+        chunks = ep_slice.column("data/chunk_index").combine_chunks()
+        files = ep_slice.column("data/file_index").combine_chunks()
+        n = len(ep_slice)
+
+        # Consecutive-dedup: mark segment boundaries where chunk or file changes.
+        is_new = (
+            pa.concat_arrays(
+                [
+                    pa.array([True]),
+                    pc.or_(  # type: ignore[attr-defined]
+                        pc.not_equal(chunks.slice(1), chunks.slice(0, n - 1)),  # type: ignore[attr-defined]
+                        pc.not_equal(files.slice(1), files.slice(0, n - 1)),  # type: ignore[attr-defined]
+                    ),
+                ]
+            )
+            if n > 0
+            else pa.array([], type=pa.bool_())
+        )
+
+        self._segments: list[tuple[int, int]] = list(
+            zip(
+                pc.filter(chunks, is_new).to_pylist(),  # type: ignore[attr-defined]
+                pc.filter(files, is_new).to_pylist(),  # type: ignore[attr-defined]
+            )
+        )
 
     def __iter__(self):
-        """Yield one-row Arrow tables with parquet, video, and task columns."""
-        ds_info = self._ds_info
+        """Yield one row per frame, filtered to ``[start_row, end_row)`` by global index."""
+        ds_meta = self._ds_meta
+        filters = [
+            ("index", ">=", self._start_row),
+            ("index", "<", self._end_row),
+        ]
+        for chunk_idx, file_idx in self._segments:
+            path = ds_meta.data_file_path(chunk_idx, file_idx)
+            fs, fs_path = fsspec.core.url_to_fs(path)
+            with fs.open(fs_path, "rb") as f:
+                pq_table = pq.read_table(f, filters=filters)
+            for i in range(pq_table.num_rows):
+                yield pq_table.slice(i, 1)
 
-        if not ds_info.video_keys:
-            for row in self._data:
-                task_idx = row.column("task_index")[0].as_py()
-                yield row.append_column(
-                    "task", pa.array([ds_info.tasks[task_idx]], type=pa.string())
-                )
-            return
 
-        video_iters = {vid_key: iter(vi) for vid_key, vi in self._video.items()}
+# ---------------------------------------------------------------------------
+# Sample stream
+# ---------------------------------------------------------------------------
+
+
+class SampleStream:
+    """Combines LowDimStream + VideoStreams for ``[start_row, end_row)``.
+
+    Yields dynamically-batched Arrow tables with parquet data, decoded video
+    frames, and task strings.  Each stream takes the same ``[start, end)``
+    range and resolves its own files internally.
+
+    Video frames are stored as **variable-shaped tensors** using
+    ``ArrowVariableShapedTensorArray`` so that episodes with different camera
+    resolutions can coexist in the same Arrow column.
+
+    **Batching**: rows are accumulated and flushed when the buffer exceeds
+    ``min_batch_bytes`` from Ray Data's DataContext.
+    """
+
+    def __init__(
+        self, ds_meta: LeRobotDatasourceMetadata, start_row: int, end_row: int
+    ) -> None:
+        self._ds_meta = ds_meta
+        self._data = LowDimStream(ds_meta, start_row, end_row)
+        self._video: dict[str, VideoStream] = {
+            vid_key: VideoStream(ds_meta, vid_key, start_row, end_row)
+            for vid_key in ds_meta.video_keys
+        }
+
+    def _enrich_row(
+        self,
+        row: pa.Table,
+        video_columns: dict[str, ArrowVariableShapedTensorArray],
+        task_str: str,
+    ) -> pa.Table:
+        """Append all video columns and the task string in one pass."""
+        columns: dict[str, pa.Array | pa.ChunkedArray] = {
+            row.schema.field(i).name: row.column(i) for i in range(row.num_columns)
+        }
+        for vid_key, tensor_arr in video_columns.items():
+            columns[vid_key] = tensor_arr
+        columns["task"] = pa.array([task_str], type=pa.string())
+        return pa.table(columns)
+
+    def __iter__(self):
+        """Yield batched Arrow tables with parquet, video, and task columns."""
+        ds_meta = self._ds_meta
+        vid_keys = list(self._video.keys())
+        min_batch_bytes, _ = _batch_limits()
+
+        # zip(LowDimStream, VideoStream_0, VideoStream_1, ...)
+        streams: Any = (
+            zip(self._data, *(self._video[k] for k in vid_keys))
+            if vid_keys
+            else ((row,) for row in self._data)
+        )
+
         try:
-            current_frames: dict[str, tuple[Any, float]] = {}
-            current_ep_idx: int | None = None
-            current_ep: dict | None = None
+            buffer: list[pa.Table] = []
+            buffer_bytes = 0
 
-            for row in self._data:
-                ep_idx: int = row.column("episode_index")[0].as_py()
-                if ep_idx != current_ep_idx:
-                    current_ep_idx = ep_idx
-                    current_ep = ds_info.get_episode(ep_idx)
-                row_ts: float = row.column("timestamp")[0].as_py()
-
-                for vid_key in ds_info.video_keys:
-                    assert current_ep is not None
-                    target_ts = current_ep[f"videos/{vid_key}/from_timestamp"] + row_ts
-
-                    if vid_key not in current_frames:
-                        current_frames[vid_key] = next(video_iters[vid_key])
-                    frame, half_frame = current_frames[vid_key]
-                    prev_time: float | None = None
-                    while True:
-                        if frame.time is None:
-                            logger.warning(
-                                "ep=%d ts=%.4f %s: frame.time is None, skipping",
-                                ep_idx,
-                                target_ts,
-                                vid_key,
-                            )
-                            current_frames[vid_key] = next(video_iters[vid_key])
-                            frame, half_frame = current_frames[vid_key]
-                            continue
-                        if prev_time is not None and frame.time < prev_time:
-                            logger.warning(
-                                "ep=%d ts=%.4f %s: timestamp went backwards "
-                                "(%.4f → %.4f), possible discontinuity at file boundary",
-                                ep_idx,
-                                target_ts,
-                                vid_key,
-                                prev_time,
-                                frame.time,
-                            )
-                        if frame.time >= target_ts - half_frame:
-                            break
-                        prev_time = frame.time
-                        current_frames[vid_key] = next(video_iters[vid_key])
-                        frame, half_frame = current_frames[vid_key]
-
-                    frame_np = frame.to_ndarray(format="rgb24")
-                    ext_type = pa.fixed_shape_tensor(
-                        pa.from_numpy_dtype(frame_np.dtype), frame_np.shape
-                    )
-                    storage = pa.FixedSizeListArray.from_arrays(
-                        frame_np.reshape(-1), int(np.prod(frame_np.shape))
-                    )
-                    row = row.append_column(
-                        vid_key, pa.ExtensionArray.from_storage(ext_type, storage)
-                    )
+            for items in streams:
+                row = items[0]
+                video_columns: dict[str, ArrowVariableShapedTensorArray] = {
+                    k: ArrowVariableShapedTensorArray.from_numpy([items[i + 1]])
+                    for i, k in enumerate(vid_keys)
+                }
 
                 task_idx = row.column("task_index")[0].as_py()
-                row = row.append_column(
-                    "task", pa.array([ds_info.tasks[task_idx]], type=pa.string())
-                )
+                enriched = self._enrich_row(row, video_columns, ds_meta.tasks[task_idx])
 
-                yield row
+                row_size = enriched.nbytes
+                buffer.append(enriched)
+                buffer_bytes += row_size
+                if buffer_bytes >= min_batch_bytes:
+                    yield pa.concat_tables(buffer)
+                    buffer.clear()
+                    buffer_bytes = 0
+
+            if buffer:
+                yield pa.concat_tables(buffer)
         finally:
-            for vi in self._video.values():
-                vi.close()
+            for vs in self._video.values():
+                vs.close()
 
 
 # ---------------------------------------------------------------------------
@@ -547,42 +651,35 @@ class EpisodeRangeReader:
 
 
 class LeRobotReadTask(ReadTask):
-    """Ray Data read task for a contiguous range of LeRobot episodes.
+    """Ray Data read task for a single slice ``[start_row, end_row)``.
 
-    Args:
-        ds_info_ref: ``ray.put`` reference shared by all tasks in a build
-            batch; retrieved both driver-side (for ``num_frames``) and
-            worker-side (for iteration) via ``ray.get``.
-        start_episode: First episode index (inclusive).
-        end_episode: Last episode index (exclusive).
-        per_task_row_limit: Optional Ray Data row cap per task.
+    Created by :meth:`SliceStrategy.build`.  Each task holds a ``ray.put``
+    reference to the shared metadata and its own row range boundaries.
     """
 
     def __init__(
         self,
-        ds_info_ref: Any,
-        start_episode: int,
-        end_episode: int,
+        ds_meta_ref: Any,
+        start_row: int,
+        end_row: int,
+        estimated_row_size_bytes: int,
         per_task_row_limit: int | None = None,
     ) -> None:
-        self.ref = ds_info_ref
-        self.start = start_episode
-        self.end = end_episode
+        num_frames = end_row - start_row
 
-        ds_info: LeRobotDatasourceMetadata = ray.get(ds_info_ref)
-        ep_slice = ds_info.episodes.slice(start_episode, end_episode - start_episode)
-        num_frames = int(pc.sum(pc.subtract(  # type: ignore[attr-defined]
-            ep_slice.column("dataset_to_index"), ep_slice.column("dataset_from_index"),
-        )).as_py())
+        # Capture only the values the closure needs — not ``self``.
+        ref = ds_meta_ref
+        start = start_row
+        end = end_row
 
         def read_fn():
-            yield from EpisodeRangeReader(ray.get(self.ref), self.start, self.end)
+            yield from SampleStream(ray.get(ref), start, end)
 
         super().__init__(
             read_fn,
             BlockMetadata(
                 num_rows=num_frames,
-                size_bytes=num_frames * ds_info.estimated_row_size_bytes,
+                size_bytes=num_frames * estimated_row_size_bytes,
                 input_files=None,
                 exec_stats=None,
             ),
@@ -591,26 +688,39 @@ class LeRobotReadTask(ReadTask):
 
 
 # ---------------------------------------------------------------------------
-# Builder base class and subclasses
+# Slice strategies
+# ---------------------------------------------------------------------------
+#
+# Each subclass decides *how* to partition the dataset into slices
+# (via slices()), while the base class handles merging to match the Ray
+# parallelism target and creating the actual ReadTask objects.
+#
+# Dataflow:
+#   1. Subclass.slices() → [(start_row, end_row), ...]
+#   2. Base.build() validates contiguity, sorts and merges slices
+#   3. Base.build() creates one LeRobotReadTask per merged slice
 # ---------------------------------------------------------------------------
 
 
-class LeRobotReadTaskBuilder:
-    """Base class for LeRobot read-task builders.
+class SliceStrategy:
+    """Base class for slice strategies.
 
-    Each subclass implements :meth:`episode_groups` to partition the dataset
-    into contiguous episode ranges.  :meth:`build` merges those ranges down to
-    the Ray ``parallelism`` target and creates one :class:`LeRobotReadTask` per
-    merged range.  Merging happens at the grouping stage — wider episode ranges
-    are passed directly to :class:`LeRobotReadTask`, which handles them natively
-    via :class:`EpisodeRangeReader`.  No task-chaining or closure tricks needed.
+    Each subclass implements :meth:`slices` to partition the dataset into
+    ``(start_row, end_row)`` pairs.  :meth:`build` merges those down to the
+    Ray ``parallelism`` target and creates one :class:`LeRobotReadTask` per
+    merged slice.
     """
 
-    def __init__(self, ds_info: LeRobotDatasourceMetadata) -> None:
-        self.ds_info = ds_info
+    def __init__(self, ds_meta: LeRobotDatasourceMetadata, **kwargs: Any) -> None:
+        self.ds_meta = ds_meta
 
-    def episode_groups(self) -> list[tuple[int, int]]:
-        """Return ``(start_episode, end_episode)`` pairs, one per natural group."""
+    def slices(self) -> list[tuple[int, int]]:
+        """Return ``(start_row, end_row)`` pairs, one per natural group.
+
+        **Contract**: the returned ranges MUST be non-overlapping and
+        contiguous — each slice's ``start_row`` must equal the previous
+        slice's ``end_row``.
+        """
         raise NotImplementedError
 
     def build(
@@ -618,14 +728,22 @@ class LeRobotReadTaskBuilder:
         parallelism: int,
         per_task_row_limit: int | None = None,
     ) -> list[ReadTask]:
-        """Merge :meth:`episode_groups` down to *parallelism* and build tasks.
+        """Merge :meth:`slices` down to *parallelism* and build read tasks."""
+        ds_meta = self.ds_meta
+        groups = sorted(self.slices())
 
-        Consecutive groups are merged by spanning their episode ranges, then one
-        :class:`LeRobotReadTask` is created per merged range.  ``ray.put`` is
-        called once so all tasks share a single serialised ``LeRobotDatasourceMetadata``.
-        """
-        ds_info = self.ds_info
-        groups = sorted(self.episode_groups())
+        # Validate contiguity.
+        for i in range(1, len(groups)):
+            prev_end = groups[i - 1][1]
+            curr_start = groups[i][0]
+            if prev_end != curr_start:
+                raise ValueError(
+                    f"Non-contiguous slices: slice {i - 1} ends at row "
+                    f"{prev_end} but slice {i} starts at row {curr_start}. "
+                    f"slices() must return contiguous, non-overlapping ranges."
+                )
+
+        # Merge if we have more slices than the parallelism target allows.
         if parallelism > 0 and len(groups) > parallelism:
             n = len(groups)
             base, remainder = divmod(n, parallelism)
@@ -636,83 +754,101 @@ class LeRobotReadTaskBuilder:
                 i += len(chunk)
                 merged.append((chunk[0][0], chunk[-1][1]))
             groups = merged
+
         logger.info(
-            "%s: %d tasks, %d frames, %d cameras",
+            "%s: %d tasks, %d total frames, %d cameras",
             type(self).__name__,
             len(groups),
-            ds_info.total_frames,
-            len(ds_info.video_keys),
+            ds_meta.total_frames,
+            len(ds_meta.video_keys),
         )
-        ds_info_ref = ray.put(ds_info)
+
+        ds_meta_ref = ray.put(ds_meta)
+        row_size = ds_meta.estimated_row_size_bytes
         return [
-            LeRobotReadTask(ds_info_ref, start, end, per_task_row_limit)
+            LeRobotReadTask(ds_meta_ref, start, end, row_size, per_task_row_limit)
             for start, end in groups
         ]
 
 
-class EpisodeReadTaskBuilder(LeRobotReadTaskBuilder):
-    """One task per episode — maximum parallelism."""
+# ---- Concrete strategies ---------------------------------------------------
+#
+# Each strategy answers one question: "given the dataset, what are the natural
+# slices?"  The base class handles everything after that.
 
-    def episode_groups(self) -> list[tuple[int, int]]:
-        return [(i, i + 1) for i in range(self.ds_info.total_episodes)]
 
+class EpisodeSlice(SliceStrategy):
+    """One slice per episode — maximum parallelism.
 
-class FileGroupReadTaskBuilder(LeRobotReadTaskBuilder):
-    """One task per unique set of video files.
-
-    Episodes that share the exact same video file for every camera are grouped
-    together.  Within a task, the video iterator seeks once per file and
-    streams continuously across episodes (seek-skip optimisation).
+    Each episode's ``[dataset_from_index, dataset_to_index)`` becomes one
+    slice.  The same video file may be opened by multiple tasks if episodes
+    in the same mp4 chunk end up in different tasks.
     """
 
-    def __init__(self, ds_info: LeRobotDatasourceMetadata) -> None:
-        super().__init__(ds_info)
-        self._groups = self._build_file_groups(ds_info)
-
-    def episode_groups(self) -> list[tuple[int, int]]:
-        return [(eps[0], eps[-1] + 1) for eps in self._groups.values()]
-
-    @staticmethod
-    def _file_group_key(
-        ds_info: LeRobotDatasourceMetadata, ep: dict
-    ) -> tuple[str, ...]:
-        return tuple(
-            ds_info.video_file_path(
-                vid_key,
-                ep[f"videos/{vid_key}/chunk_index"],
-                ep[f"videos/{vid_key}/file_index"],
-            )
-            for vid_key in ds_info.video_keys
-        )
-
-    @staticmethod
-    def _build_file_groups(
-        ds_info: LeRobotDatasourceMetadata,
-    ) -> dict[tuple[str, ...], list[int]]:
-        """Map each unique video-file tuple to its sorted list of episode indices."""
-        groups: dict[tuple[str, ...], list[int]] = {}
-        for i in range(ds_info.total_episodes):
-            ep = ds_info.get_episode(i)
-            groups.setdefault(
-                FileGroupReadTaskBuilder._file_group_key(ds_info, ep), []
-            ).append(ep["episode_index"])
-        return groups
+    def slices(self) -> list[tuple[int, int]]:
+        ds = self.ds_meta
+        from_indices = ds.episodes.column("dataset_from_index").to_pylist()
+        to_indices = ds.episodes.column("dataset_to_index").to_pylist()
+        return list(zip(from_indices, to_indices))
 
 
-class ChainReadTaskBuilder(LeRobotReadTaskBuilder):
-    """One task per connected component of episodes that share any video file.
+class FileGroupSlice(SliceStrategy):
+    """One slice per unique set of video files (default strategy).
 
-    Uses union-find directly over episodes: each episode is a node; two
-    episodes are in the same component when they reference the same mp4 file
-    for at least one camera.  This ensures each video file is opened at most
-    once per task and yields the minimal number of tasks needed to avoid
-    redundant cloud reads (often 1–4 for large datasets like DROID).
+    Episodes that reference the *exact same* video file for *every* camera
+    are grouped together.  Within a chunk, all episodes share the same set
+    of mp4 files (one per camera), so each chunk typically becomes one slice.
+
+    The grouping key is the tuple of ``(chunk_index, file_index)`` pairs
+    across all cameras.
     """
 
-    def episode_groups(self) -> list[tuple[int, int]]:
-        ds_info = self.ds_info
-        episode_list = list(range(ds_info.total_episodes))
-        parent: dict[int, int] = {ep: ep for ep in episode_list}
+    def slices(self) -> list[tuple[int, int]]:
+        ds = self.ds_meta
+        eps = ds.episodes
+
+        key_columns: list[list[int]] = []
+        for vk in ds.video_keys:
+            key_columns.append(eps.column(f"videos/{vk}/chunk_index").to_pylist())
+            key_columns.append(eps.column(f"videos/{vk}/file_index").to_pylist())
+
+        from_indices = eps.column("dataset_from_index").to_pylist()
+        to_indices = eps.column("dataset_to_index").to_pylist()
+        n = len(eps)
+
+        groups: dict[tuple[int, ...], tuple[int, int]] = {}
+        for i in range(n):
+            key = tuple(col[i] for col in key_columns)
+            from_idx = from_indices[i]
+            to_idx = to_indices[i]
+            if key in groups:
+                prev_from, prev_to = groups[key]
+                groups[key] = (min(prev_from, from_idx), max(prev_to, to_idx))
+            else:
+                groups[key] = (from_idx, to_idx)
+
+        return list(groups.values())
+
+
+class ChainSlice(SliceStrategy):
+    """One slice per connected component of episodes sharing any video file.
+
+    Uses union-find (disjoint-set) with path compression and union-by-rank
+    over episodes: two episodes are in the same component when they reference
+    the same mp4 file for *at least one* camera.  This produces the minimal
+    number of slices such that each video file appears in exactly one slice.
+
+    Typically yields 1-4 slices even for large datasets (like DROID with
+    52k episodes), because most video chunks overlap transitively.
+    """
+
+    def slices(self) -> list[tuple[int, int]]:
+        ds = self.ds_meta
+        eps = ds.episodes
+        n = len(eps)
+
+        parent = list(range(n))
+        rank = [0] * n
 
         def find(x: int) -> int:
             while parent[x] != x:
@@ -722,47 +858,78 @@ class ChainReadTaskBuilder(LeRobotReadTaskBuilder):
 
         def union(a: int, b: int) -> None:
             ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
+            if ra == rb:
+                return
+            if rank[ra] < rank[rb]:
+                ra, rb = rb, ra
+            parent[rb] = ra
+            if rank[ra] == rank[rb]:
+                rank[ra] += 1
 
-        video_file_to_episode: dict[str, int] = {}
-        for ep_idx in episode_list:
-            ep = ds_info.get_episode(ep_idx)
-            for vid_key in ds_info.video_keys:
-                path = ds_info.video_file_path(
-                    vid_key,
-                    ep[f"videos/{vid_key}/chunk_index"],
-                    ep[f"videos/{vid_key}/file_index"],
-                )
-                if path in video_file_to_episode:
-                    union(ep_idx, video_file_to_episode[path])
+        video_file_to_episode: dict[tuple[str, int, int], int] = {}
+        for vid_key in ds.video_keys:
+            vid_chunks = eps.column(f"videos/{vid_key}/chunk_index").to_pylist()
+            vid_files = eps.column(f"videos/{vid_key}/file_index").to_pylist()
+            for ep_idx in range(n):
+                file_key = (vid_key, vid_chunks[ep_idx], vid_files[ep_idx])
+                if file_key in video_file_to_episode:
+                    union(ep_idx, video_file_to_episode[file_key])
                 else:
-                    video_file_to_episode[path] = ep_idx
+                    video_file_to_episode[file_key] = ep_idx
 
-        components: dict[int, list[int]] = {}
-        for ep_idx in episode_list:
-            components.setdefault(find(ep_idx), []).append(ep_idx)
+        from_indices = eps.column("dataset_from_index").to_pylist()
+        to_indices = eps.column("dataset_to_index").to_pylist()
 
-        return sorted((eps[0], eps[-1] + 1) for eps in components.values())
+        component_ranges: dict[int, tuple[int, int]] = {}
+        for ep_idx in range(n):
+            root = find(ep_idx)
+            from_idx = from_indices[ep_idx]
+            to_idx = to_indices[ep_idx]
+            if root in component_ranges:
+                prev_from, prev_to = component_ranges[root]
+                component_ranges[root] = (
+                    min(prev_from, from_idx),
+                    max(prev_to, to_idx),
+                )
+            else:
+                component_ranges[root] = (from_idx, to_idx)
+
+        return sorted(component_ranges.values())
 
 
-class SequentialReadTaskBuilder(LeRobotReadTaskBuilder):
-    """Single task that streams all episodes sequentially.
+class SequentialSlice(SliceStrategy):
+    """Single slice spanning all rows — minimises peak memory."""
 
-    Designed for cloud-hosted datasets (GCS/S3) where minimising peak memory
-    matters more than parallelism: only one parquet file and one set of video
-    containers are open at a time.
+    def slices(self) -> list[tuple[int, int]]:
+        return [(0, self.ds_meta.total_frames)]
+
+
+class FixedRowBlockSlice(SliceStrategy):
+    """Splits total_frames into fixed-size blocks of ``group_size`` rows.
+
+    Block boundaries can fall in the middle of an episode.  The streams
+    handle partial episodes transparently.
     """
 
-    def episode_groups(self) -> list[tuple[int, int]]:
-        return [(0, self.ds_info.total_episodes)]
+    def __init__(
+        self, ds_meta: LeRobotDatasourceMetadata, *, group_size: int, **kwargs: Any
+    ) -> None:
+        super().__init__(ds_meta, **kwargs)
+        self._group_size = group_size
+
+    def slices(self) -> list[tuple[int, int]]:
+        total = self.ds_meta.total_frames
+        size = self._group_size
+        return [(i, min(i + size, total)) for i in range(0, total, size)]
 
 
-_BUILDERS: dict[str, type[LeRobotReadTaskBuilder]] = {
-    "sequential": SequentialReadTaskBuilder,
-    "episode": EpisodeReadTaskBuilder,
-    "file_group": FileGroupReadTaskBuilder,
-    "chain": ChainReadTaskBuilder,
+# Registry mapping mode strings to strategy classes.
+_STRATEGIES: dict[str, type[SliceStrategy]] = {
+    "sequential": SequentialSlice,
+    "episode": EpisodeSlice,
+    "file_group": FileGroupSlice,
+    "chain": ChainSlice,
+    "row_block": FixedRowBlockSlice,
 }
 
 
@@ -771,71 +938,83 @@ _BUILDERS: dict[str, type[LeRobotReadTaskBuilder]] = {
 # ---------------------------------------------------------------------------
 
 
-class ParallelismMode(enum.Enum):
+class GroupingMode(enum.Enum):
     """How the dataset is partitioned into Ray Data read tasks.
 
-    Listed from highest parallelism to lowest:
+    All modes produce ``(start_row, end_row)`` slices over the global
+    ``index`` column.  Episode-aligned modes are a special case where
+    boundaries coincide with episode boundaries.
 
-    EPISODE       One task per episode.  Maximum parallelism but each
-                  video file may be opened many times.
-    FILE_GROUP    One task per unique set of video files.  Opens each
-                  video container once per task; good balance of
-                  parallelism and cloud-read efficiency.
-    CHAIN         Merges overlapping FILE_GROUP groups via union-find so
-                  each video file is opened exactly once.  Fewest cloud
-                  reads but very few (often 1-4) tasks.
-    SEQUENTIAL    Single task, streams parquet file-by-file from cloud
-                  storage without loading the full dataset into memory.
-                  Use when the dataset lives on GCS/S3 and parallelism
-                  is less important than minimising peak memory.
+    EPISODE       One slice per episode.
+    FILE_GROUP    One slice per unique set of video files (default).
+    CHAIN         One slice per connected component of shared video files.
+    SEQUENTIAL    Single slice spanning the entire dataset.
+    ROW_BLOCK     Fixed-size blocks of ``group_size`` rows.
     """
 
     EPISODE = "episode"
     FILE_GROUP = "file_group"
     CHAIN = "chain"
     SEQUENTIAL = "sequential"
+    ROW_BLOCK = "row_block"
 
 
 class LeRobotDatasource(Datasource):
-    """Ray Data ``Datasource`` for LeRobot-format robotics datasets.
+    """Ray Data ``Datasource`` for LeRobot datasets.
 
-    Args:
-        root: Path to dataset root — local, ``gs://``, or ``s3://``.
-        parallelism_mode: Controls how the dataset is split into Ray tasks.
-            Accepts a :class:`ParallelismMode` enum value or its string
-            equivalent (``"episode"``, ``"file_group"``, ``"chain"``,
-            ``"sequential"``).  Defaults to ``"file_group"``.
+    This is the public entry point.  Usage::
+
+        ds = ray.data.read_datasource(LeRobotDatasource(
+            root="/data/my_dataset",
+            grouping_mode=GroupingMode.ROW_BLOCK,
+            group_size=1024,
+        ))
+
+    The constructor loads dataset metadata eagerly on the driver.  The actual
+    data and video I/O happens lazily on workers when Ray schedules the read
+    tasks.
     """
 
     def __init__(
         self,
         root: str | Path,
-        parallelism_mode: ParallelismMode | str = ParallelismMode.FILE_GROUP,
+        grouping_mode: GroupingMode | str = GroupingMode.FILE_GROUP,
+        group_size: int | None = None,
     ):
-        if isinstance(parallelism_mode, ParallelismMode):
-            parallelism_mode = parallelism_mode.value
-        if parallelism_mode not in _BUILDERS:
+        if isinstance(grouping_mode, GroupingMode):
+            grouping_mode = grouping_mode.value
+
+        if grouping_mode not in _STRATEGIES:
             raise ValueError(
-                f"Unknown parallelism mode {parallelism_mode!r}. "
-                f"Choose from: {', '.join(_BUILDERS)}"
+                f"Unknown grouping mode {grouping_mode!r}. "
+                f"Choose from: {', '.join(_STRATEGIES)}"
+            )
+        if grouping_mode == "row_block" and group_size is None:
+            raise ValueError("group_size is required when grouping_mode is 'row_block'")
+        if grouping_mode != "row_block" and group_size is not None:
+            raise ValueError(
+                f"group_size is only valid with 'row_block' mode, not {grouping_mode!r}"
             )
 
-        self._ds_info = LeRobotDatasourceMetadata(str(root))
-        self._parallelism_mode = parallelism_mode
+        self._ds_meta = LeRobotDatasourceMetadata(str(root))
+        self._grouping_mode = grouping_mode
+        self._group_size = group_size
 
         logger.info(
-            "LeRobotDatasource ready: %d episodes, %d frames, %d cameras %s, mode=%r, root=%s",
-            self._ds_info.total_episodes,
-            self._ds_info.total_frames,
-            len(self._ds_info.video_keys),
-            self._ds_info.video_keys,
-            self._parallelism_mode,
-            self._ds_info.root,
+            "LeRobotDatasource ready: %d episodes, %d frames, %d cameras %s, "
+            "mode=%r, group_size=%s, root=%s",
+            self._ds_meta.total_episodes,
+            self._ds_meta.total_frames,
+            len(self._ds_meta.video_keys),
+            self._ds_meta.video_keys,
+            self._grouping_mode,
+            self._group_size,
+            self._ds_meta.root,
         )
 
     def estimate_inmemory_data_size(self) -> int | None:
-        """Return estimated in-memory dataset size (parquet + decoded video)."""
-        return self._ds_info.estimated_inmemory_size_bytes
+        """Hint for Ray Data's memory-aware scheduling."""
+        return self._ds_meta.estimated_inmemory_size_bytes
 
     def get_read_tasks(
         self,
@@ -843,6 +1022,46 @@ class LeRobotDatasource(Datasource):
         per_task_row_limit: int | None = None,
         data_context: DataContext | None = None,
     ) -> list[ReadTask]:
-        """Build and return read tasks for the configured parallelism mode."""
-        builder = _BUILDERS[self._parallelism_mode](self._ds_info)
-        return builder.build(parallelism, per_task_row_limit)
+        """Build and return read tasks for the configured grouping mode."""
+        kwargs: dict[str, Any] = {}
+        if self._group_size is not None:
+            kwargs["group_size"] = self._group_size
+        strategy = _STRATEGIES[self._grouping_mode](self._ds_meta, **kwargs)
+        return strategy.build(parallelism, per_task_row_limit)
+
+
+def read_lerobot(
+    root: str | Path,
+    grouping_mode: GroupingMode | str = GroupingMode.FILE_GROUP,
+    group_size: int | None = None,
+    **kwargs: Any,
+) -> tuple["ray.data.Dataset", LeRobotDatasourceMetadata]:
+    """Read a LeRobot dataset as a Ray Data ``Dataset``.
+
+    Convenience wrapper around ``ray.data.read_datasource(LeRobotDatasource(...))``.
+
+    Args:
+        root: Path or URI to the dataset root (local, ``gs://``, ``s3://``).
+        grouping_mode: How to partition the dataset into read tasks.
+        group_size: Block size in rows; required when *grouping_mode* is ``row_block``.
+        **kwargs: Forwarded verbatim to ``ray.data.read_datasource`` (e.g.
+            ``override_num_blocks``, ``num_cpus``, ``ray_remote_args``).
+
+    Returns:
+        A ``(dataset, meta)`` tuple — the Ray Data ``Dataset`` of decoded frames
+        and the ``LeRobotDatasourceMetadata`` for the dataset (episodes table,
+        video keys, stats, etc.).
+
+    Example::
+
+        import ray
+        from lerobot_datasource import read_lerobot, GroupingMode
+
+        ds, meta = read_lerobot("/data/my_dataset")
+        ds, meta = read_lerobot("gs://bucket/dataset", grouping_mode=GroupingMode.EPISODE)
+        ds, meta = read_lerobot("/data/my_dataset", grouping_mode=GroupingMode.ROW_BLOCK, group_size=1024)
+        ds, meta = read_lerobot("/data/my_dataset", override_num_blocks=8, num_cpus=2)
+        print(meta.total_frames, meta.video_keys)
+    """
+    source = LeRobotDatasource(root, grouping_mode=grouping_mode, group_size=group_size)
+    return ray.data.read_datasource(source, **kwargs), source._ds_meta
