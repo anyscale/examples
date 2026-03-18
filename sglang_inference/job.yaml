@@ -25,10 +25,6 @@ compute_config:
       max_nodes: 2
 
 env_vars:
-  MODEL_PATH: "Qwen/Qwen3-1.7B"
-  TP_SIZE: "4"
-  PP_SIZE: "2"
-  NUM_NODES_PER_REPLICA: "2"
   # Ray normally sets CUDA_VISIBLE_DEVICES for each worker process.
   # Disable this because SGLang assumes CUDA_VISIBLE_DEVICES lists all GPUs.
   RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES: "1"
