@@ -43,7 +43,7 @@ env_vars:
 entrypoint: uv run python pipeline.py
 
 # If there is an error, do not retry.
-max_retries: 3
+max_retries: 0
 
 # Kill the job after 4 hours to control costs.
 timeout_s: 14400

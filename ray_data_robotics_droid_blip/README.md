@@ -10,8 +10,9 @@ Demonstrates **heterogeneous Ray Data pipelines** — CPU workers stream data fr
 |---|---|
 | `pipeline.py` | Main entry point — pipeline wiring, CPU/GPU stages, and config knobs |
 | `job.yaml` | Anyscale job config — compute, env vars, T4 GPUs |
-| `episodes_droid_v1.0.1_s3.parquet` | Pre-built manifest of DROID episodes and their S3 paths |
 | `pyproject.toml` | Dependencies (managed by `uv`) |
+
+**Note:** The pipeline automatically downloads the DROID episode manifest (`episodes_droid_v1.0.1_s3.parquet`) from S3 on first run.
 
 ## Usage
 

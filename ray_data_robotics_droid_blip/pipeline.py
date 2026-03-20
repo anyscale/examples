@@ -206,13 +206,19 @@ class BlipCaptionStage:
 # ============================================================================
 # Prepare: read manifest and resolve S3 paths
 # ============================================================================
-# The manifest is a small Parquet file (~59K rows) listing every episode.
-# We read it on the driver to build:
+# The manifest is a small Parquet file (~85K rows) listing every episode.
+# We read it directly from S3 on the driver to build:
 #   1. A list of MP4 paths to pass to read_binary_files.
 #   2. A path → {uuid, task} lookup so we can attach metadata later.
 
-log.info("Reading manifest: %s", MANIFEST)
-manifest = pq.read_table(MANIFEST)
+# Anonymous S3 filesystem for the public DROID bucket.
+s3_fs = S3FileSystem(anonymous=True, region="us-east-2")
+
+# Construct S3 path (remove s3:// prefix for PyArrow filesystem)
+bucket_name = DATASET_BUCKET.replace("s3://", "")
+manifest_path = f"{bucket_name}/{DATASET_PREFIX}/{MANIFEST}"
+log.info("Reading manifest from S3: s3://%s", manifest_path)
+manifest = pq.read_table(manifest_path, filesystem=s3_fs)
 s3_base = f"{DATASET_BUCKET}/{DATASET_PREFIX}/"
 
 mp4_paths: list[str] = []
@@ -268,9 +274,6 @@ def attach_meta(row: dict[str, Any]) -> dict[str, Any]:
 # Everything below is lazy — no work happens until write_parquet() is called.
 # Ray Data then executes all stages as a streaming pipeline with automatic
 # backpressure between CPU and GPU stages.
-
-# Anonymous S3 filesystem for the public DROID bucket.
-s3_fs = S3FileSystem(anonymous=True, region="us-east-2")
 
 ds = (
     # --- Read: download MP4 files from S3 in parallel ---
