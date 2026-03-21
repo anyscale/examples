@@ -36,10 +36,11 @@ env_vars:
   # Input parquet files with image URLs (url and caption columns)
   # Read directly from HuggingFace
   INPUT_PARQUET: "hf://datasets/laion/relaion400m/"
-  MAX_ENTRIES: "10000000"
+  MAX_ENTRIES: "1000"
   
   # HuggingFace token for gated datasets
-  HF_TOKEN: "${HF_TOKEN}"
+  # Replace with your token before submitting (GitHub push protection will block commits with real tokens)
+  HF_TOKEN: ""
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
@@ -73,6 +74,9 @@ env_vars:
   
   # Disable Python output buffering for real-time logs
   PYTHONUNBUFFERED: "1"
+
+  # Use local Curator/ from working_dir on all nodes (overrides Docker image's installed copy)
+  PYTHONPATH: "Curator"
 
 # The entrypoint script (-u for unbuffered output)
 entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.py

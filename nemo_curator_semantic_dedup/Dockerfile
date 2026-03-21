@@ -1,6 +1,6 @@
 # NeMo Curator Image Deduplication Example
 # Uses CUDA 12.8 for GPU-accelerated processing
-FROM anyscale/ray:2.52.0-slim-py312-cu128
+FROM anyscale/ray:2.54.0-slim-py312-cu128
 
 # Note: Cache busting for git clone is done via CURATOR_CACHE_BUST arg below
 
@@ -34,10 +34,10 @@ ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
 ARG CURATOR_REF=avi-test
 # ARG CURATOR_REF=main
 # Cache bust for git clone - change this value to force re-clone after pushing to branch
-ARG CURATOR_CACHE_BUST=2025-12-29-v3
-RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
-    git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
-    uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
+ARG CURATOR_CACHE_BUST=2026-03-21-v1
+# RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
+#     git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
+#     uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
 
 # Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
 # cuML 25.6.* needs sklearn >= 1.5 (has _get_default_requests)

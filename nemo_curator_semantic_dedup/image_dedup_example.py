@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import time
 
 from helper import parquet_to_webdataset_ray
@@ -77,7 +78,7 @@ def create_image_embedding_pipeline(config: Config) -> Pipeline:
         file_extensions=[".tar"],
     ))
 
-    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size))
+    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0))
 
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=config.model_dir,
@@ -114,7 +115,7 @@ def create_image_deduplication_pipeline(config: Config) -> Pipeline:
         file_extensions=[".tar"],
     ))
 
-    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size))
+    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0))
 
     pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=config.removal_parquets_dir + "/duplicates",
@@ -163,6 +164,19 @@ def main(config: Config) -> None:
     ray_client.stop()
 
 
+def _load_env_file() -> None:
+    """Load variables from .env file if present, without overriding existing env vars."""
+    env_file = Path(__file__).parent / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 if __name__ == "__main__":
+    _load_env_file()
     config = Config.from_env()
     main(config)
