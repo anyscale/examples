@@ -82,6 +82,7 @@ def create_image_embedding_pipeline(config: Config) -> Pipeline:
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=config.model_dir,
         model_inference_batch_size=config.embedding_batch_size,
+        remove_image_data=True,
     ))
 
     pipeline.add_stage(ConvertImageBatchToDocumentBatchStage(fields=["image_id", "embedding"]))

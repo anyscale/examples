@@ -36,11 +36,10 @@ env_vars:
   # Input parquet files with image URLs (url and caption columns)
   # Read directly from HuggingFace
   INPUT_PARQUET: "hf://datasets/laion/relaion400m/"
-  MAX_ENTRIES: "10000"
+  MAX_ENTRIES: "10000000"
   
   # HuggingFace token for gated datasets
-  # Set via: anyscale job submit --env-var HF_TOKEN=<your-token> ...
-  HF_TOKEN: ""
+  HF_TOKEN: "${HF_TOKEN}"
   
   # Directory for WebDataset tar files (created from parquet)
   # Use /mnt/cluster_storage for persistence, or /home/ray/data for ephemeral
@@ -58,9 +57,9 @@ env_vars:
   # Model weights directory (pre-downloaded in Docker image)
   MODEL_DIR: "/home/ray/model_weights"
   
-  # Processing settings (reduced to prevent OOM)
-  BATCH_SIZE: "4"
-  EMBEDDING_BATCH_SIZE: "8"
+  # Processing settings
+  BATCH_SIZE: "64"
+  EMBEDDING_BATCH_SIZE: "64"
   TAR_FILES_PER_PARTITION: "1"
   ENTRIES_PER_TAR: "500"
   
