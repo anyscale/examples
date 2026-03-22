@@ -302,6 +302,7 @@ class LeRobotReadTask(ReadTask):
     def __init__(
         self,
         meta: LeRobotDatasourceMetadata,
+        meta_ref: "ray.ObjectRef",
         start: int,
         end: int,
         rows_per_batch: int,
@@ -319,14 +320,14 @@ class LeRobotReadTask(ReadTask):
             input_files=input_files,
             exec_stats=None,
         )
-        super().__init__(self._read_fn, block_metadata, meta.schema, per_task_row_limit)
-        self._meta = meta
+        super().__init__(self._read, block_metadata, meta.schema, per_task_row_limit)
+        self._meta_ref = meta_ref
         self._start = start
         self._end = end
         self._rows_per_batch = rows_per_batch
         self._resolved_paths = paths
 
-    def _read_fn(self) -> Iterator[pa.Table]:
+    def _read(self) -> Iterator[pa.Table]:
         """Stream decoded rows as Arrow tables.
 
         Data flow
@@ -358,7 +359,7 @@ class LeRobotReadTask(ReadTask):
             yield remaining buffered rows as a final batch
 
         """
-        meta = self._meta
+        meta = ray.get(self._meta_ref)
         start, end = self._start, self._end
         parquet_segs, video_paths, video_start_ts, ep_from_ts = self._resolved_paths
 
@@ -824,6 +825,59 @@ class LeRobotDatasource(Datasource):
         size = self.meta.total_frames * self.meta.estimated_row_size_bytes
         return size or None
 
+    def plan(self, parallelism: int = 0) -> list[dict]:
+        """Return the read plan as a list of task descriptors — no I/O, no Ray objects.
+
+        Each entry describes one logical read task::
+
+            {
+                "task":         int,           # 0-based task index
+                "start":        int,           # first global row (inclusive)
+                "end":          int,           # last global row (exclusive)
+                "num_rows":     int,
+                "size_bytes":   int,           # estimated
+                "parquet_files": list[str],
+                "video_files":  dict[str, list[str]],  # keyed by video_key
+            }
+
+        Args:
+            parallelism: Maximum number of tasks (same semantics as
+                :meth:`get_read_tasks`).  ``0`` or negative means one task per
+                natural slice (no merging).
+        """
+        row_ranges = self._slice()
+
+        if parallelism > 0 and len(row_ranges) > parallelism:
+            n = len(row_ranges)
+            base, remainder = divmod(n, parallelism)
+            groups: list[list[tuple[int, int]]] = []
+            i = 0
+            for g in range(parallelism):
+                chunk_size = base + (1 if g < remainder else 0)
+                groups.append(row_ranges[i : i + chunk_size])
+                i += chunk_size
+        else:
+            groups = [[r] for r in row_ranges]
+
+        result = []
+        for idx, group in enumerate(groups):
+            start, end = group[0][0], group[-1][1]
+            parquet_segs, video_paths, _, _ = LeRobotReadTask._resolve_paths(
+                self.meta, start, end
+            )
+            result.append(
+                {
+                    "task": idx,
+                    "start": start,
+                    "end": end,
+                    "num_rows": end - start,
+                    "size_bytes": (end - start) * self.meta.estimated_row_size_bytes,
+                    "parquet_files": parquet_segs,
+                    "video_files": video_paths,
+                }
+            )
+        return result
+
     def get_read_tasks(
         self,
         parallelism: int,
@@ -840,39 +894,31 @@ class LeRobotDatasource(Datasource):
         2. **Group** — if there are more ranges than *parallelism* allows,
            merge consecutive ranges so groups differ in size by at most one.
         3. **Wrap** — create one :class:`LeRobotReadTask` per group.  Each task
-           receives the merged ``(start, end)`` span and the full dataset
-           metadata; file path resolution and all I/O happen on the worker.
+           receives the merged ``(start, end)`` span and a shared
+           ``ray.ObjectRef`` to the dataset metadata; file path resolution
+           and all I/O happen on the worker.
         """
-        row_ranges = self._slice()
-
-        if parallelism > 0 and len(row_ranges) > parallelism:
-            n = len(row_ranges)
-            base, remainder = divmod(n, parallelism)
-            groups: list[list[tuple[int, int]]] = []
-            i = 0
-            for g in range(parallelism):
-                chunk_size = base + (1 if g < remainder else 0)
-                groups.append(row_ranges[i : i + chunk_size])
-                i += chunk_size
-        else:
-            groups = [[r] for r in row_ranges]
+        task_plan = self.plan(parallelism)
 
         logger.info(
             "%d tasks, %d total frames, %d cameras",
-            len(groups),
+            len(task_plan),
             self.meta.total_frames,
             len(self.meta.video_keys),
         )
 
+        meta_ref = ray.put(self.meta)
+        rows_per_batch = self._rows_per_batch(data_context)
         return [
             LeRobotReadTask(
                 meta=self.meta,
-                start=group[0][0],
-                end=group[-1][1],
-                rows_per_batch=self._rows_per_batch(data_context),
+                meta_ref=meta_ref,
+                start=entry["start"],
+                end=entry["end"],
+                rows_per_batch=rows_per_batch,
                 per_task_row_limit=per_task_row_limit,
             )
-            for group in groups
+            for entry in task_plan
         ]
 
 

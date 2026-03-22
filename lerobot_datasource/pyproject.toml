@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "av>=14.0.0",
-    "fsspec>=2024.1.0",
+    "fsspec[s3]>=2024.1.0",
+    "s3fs>=2024.1.0",
     "huggingface-hub>=0.30.0",
     "numpy>=1.26.0",
     "pyarrow>=18.0.0",
