@@ -2,14 +2,14 @@
 
 Reads four LeRobot v3 datasets from S3, each with a different partitioning mode:
 
-    pusht                        SEQUENTIAL  — one task for the whole dataset
+    pusht                         SEQUENTIAL  — one task for the whole dataset
     aloha_sim_transfer_cube_human EPISODE    — one task per episode
-    fmb                          FILE_GROUP  — one task per unique video-file set (default)
-    xvla-soft-fold               CHAIN       — one task per connected component of shared files
+    fmb                           CHAIN      — one task per connected component of shared files
+    xvla-soft-fold                FILE_GROUP — one task per unique video-file set (default)
 
-For each dataset the read plan is printed before execution, showing per-task
-row ranges, estimated size, and the parquet / video files each task will open.
-Schema and row count are printed after the read completes.
+For each dataset the read plan is printed before execution, showing task count,
+per-task row ranges, estimated size, and the parquet / video files each task
+will open.  Schema and row count are printed after the read completes.
 
 Two access patterns are shown:
 
@@ -19,6 +19,14 @@ Two access patterns are shown:
     LeRobotDatasource(root, partitioning=...)  +  ray.data.read_datasource(source)
         Direct datasource construction; exposes source.meta and source.plan()
         before any data is read.
+
+Additional examples at the end of the script:
+
+    Take 1 row — reads one row from pusht and prints each column's shape/value.
+
+    write_parquet — writes pusht as a single parquet file to
+        /mnt/cluster_storage/lerobot/pusht.parquet, then inspects the written
+        file and prints row count, row groups, column count, size, and schema.
 
 All datasets are read from::
 
