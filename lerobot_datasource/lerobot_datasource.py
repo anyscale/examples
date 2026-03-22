@@ -292,7 +292,7 @@ class LeRobotReadTask(ReadTask):
     public API.
 
     Args:
-        meta:               Dataset metadata (filesystem, templates, schema, tasks, …).
+        meta_ref:           Ray object reference to dataset metadata.
         start:              First global row index (inclusive).
         end:                Last global row index (exclusive).
         rows_per_batch:     Maximum rows per yielded Arrow table.
@@ -301,13 +301,13 @@ class LeRobotReadTask(ReadTask):
 
     def __init__(
         self,
-        meta: LeRobotDatasourceMetadata,
         meta_ref: "ray.ObjectRef",
         start: int,
         end: int,
         rows_per_batch: int,
         per_task_row_limit: int | None = None,
     ) -> None:
+        meta: LeRobotDatasourceMetadata = ray.get(meta_ref)
         # Resolve paths now (no I/O — pure computation) so input_files is
         # populated in BlockMetadata and the result can be reused in _read.
         paths = LeRobotReadTask._resolve_paths(meta, start, end)
@@ -911,7 +911,6 @@ class LeRobotDatasource(Datasource):
         rows_per_batch = self._rows_per_batch(data_context)
         return [
             LeRobotReadTask(
-                meta=self.meta,
                 meta_ref=meta_ref,
                 start=entry["start"],
                 end=entry["end"],
