@@ -171,9 +171,10 @@ def test_schema_columns(lerobot_rows, ray_rows, meta):
         assert vid_key in lerobot_keys, f"Video key {vid_key!r} missing from lerobot"
         assert vid_key in ray_keys, f"Video key {vid_key!r} missing from Ray Data"
 
-    # Non-video column names must match exactly.
+    # Non-video column names must match exactly (excluding datasource-only columns).
+    _datasource_only = {"dataset_index"}
     lerobot_non_video = lerobot_keys - set(meta.video_keys)
-    ray_non_video = ray_keys - set(meta.video_keys)
+    ray_non_video = ray_keys - set(meta.video_keys) - _datasource_only
     assert lerobot_non_video == ray_non_video, (
         f"Non-video column mismatch:\n"
         f"  lerobot only: {lerobot_non_video - ray_non_video}\n"
