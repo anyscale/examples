@@ -340,3 +340,80 @@ def test_stats(lerobot_ds, meta):
                 lr_val, our_val, rtol=1e-6,
                 err_msg=f"Stats mismatch for {feat_key!r}/{stat_key!r}",
             )
+
+
+# ---------------------------------------------------------------------------
+# Multi-root tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def two_roots(lerobot_ds) -> tuple[str, str]:
+    """Return the same dataset root twice — cheapest way to test multi-root without two downloads."""
+    root = str(lerobot_ds.root)
+    return root, root
+
+
+def test_multi_root_dataset_index_column(two_roots):
+    """dataset_index column must be present and contain only 0 and 1."""
+    root_a, root_b = two_roots
+    ds = read_lerobot([root_a, root_b], partitioning=Partitioning.SEQUENTIAL)
+    rows = list(ds.iter_rows())
+    assert len(rows) > 0, "Expected non-empty dataset"
+    indices = {r["dataset_index"] for r in rows}
+    assert indices == {0, 1}, f"Expected {{0, 1}}, got {indices}"
+
+
+def test_multi_root_row_count(two_roots):
+    """Reading two identical roots must yield exactly twice as many rows as one root."""
+    root_a, root_b = two_roots
+    single = read_lerobot(root_a, partitioning=Partitioning.SEQUENTIAL)
+    multi = read_lerobot([root_a, root_b], partitioning=Partitioning.SEQUENTIAL)
+    assert multi.count() == 2 * single.count()
+
+
+def test_multi_root_episode_index_not_remapped(two_roots):
+    """episode_index values must be per-root local (not globally remapped)."""
+    root_a, root_b = two_roots
+    ds = read_lerobot([root_a, root_b], partitioning=Partitioning.SEQUENTIAL)
+    rows_by_ds: dict[int, list] = {0: [], 1: []}
+    for r in ds.iter_rows():
+        rows_by_ds[r["dataset_index"]].append(r["episode_index"])
+    # Both roots are the same dataset, so their episode_index ranges must be equal.
+    assert sorted(set(rows_by_ds[0])) == sorted(set(rows_by_ds[1])), (
+        "episode_index ranges differ between roots — possible unintended remapping"
+    )
+
+
+def test_multi_root_single_string_unchanged(two_roots):
+    """Single-string API must still work and always produce dataset_index == 0."""
+    root_a, _ = two_roots
+    ds = read_lerobot(root_a, partitioning=Partitioning.SEQUENTIAL)
+    rows = list(ds.iter_rows())
+    assert all(r["dataset_index"] == 0 for r in rows), (
+        "Single-root read produced dataset_index != 0"
+    )
+
+
+def test_multi_root_incompatible_fps_raises():
+    """LeRobotDatasource must raise ValueError when roots have different fps."""
+    # We can't easily manufacture a real dataset with different fps,
+    # so we test that the validation path is reachable by mocking.
+    from unittest.mock import MagicMock, patch
+
+    mock_meta_a = MagicMock()
+    mock_meta_a.video_keys = ["observation.image"]
+    mock_meta_a.info = {"fps": 10, "features": {}}
+    mock_meta_a.root = "/fake/ds_a"
+
+    mock_meta_b = MagicMock()
+    mock_meta_b.video_keys = ["observation.image"]
+    mock_meta_b.info = {"fps": 30, "features": {}}
+    mock_meta_b.root = "/fake/ds_b"
+
+    with patch(
+        "lerobot_datasource.LeRobotDatasourceMetadata",
+        side_effect=[mock_meta_a, mock_meta_b],
+    ):
+        with pytest.raises(ValueError, match="fps mismatch"):
+            LeRobotDatasource(["/fake/ds_a", "/fake/ds_b"])
