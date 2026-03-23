@@ -48,6 +48,10 @@ Typical usage::
     ds = read_lerobot("gs://bucket/dataset", partitioning=Partitioning.EPISODE)
     ds = read_lerobot("/data/my_dataset", partitioning=Partitioning.ROW_BLOCK, block_size=1024)
 
+    # Multiple roots — rows from all datasets are interleaved; dataset_index identifies the source.
+    ds = read_lerobot(["/data/ds1", "/data/ds2"])
+    ds = read_lerobot(["gs://bucket/ds1", "gs://bucket/ds2"], partitioning=Partitioning.EPISODE)
+
     # Access metadata via the datasource directly:
     source = LeRobotDatasource("/data/my_dataset")
     print(source.meta.total_frames, source.meta.video_keys)
@@ -183,6 +187,7 @@ class LeRobotDatasourceMetadata:
         for vk in self.video_keys:
             fields.append(pa.field(vk, ArrowVariableShapedTensorType(pa.uint8(), ndim=3)))
         fields.append(pa.field("task", pa.string()))
+        fields.append(pa.field("dataset_index", pa.int32()))
         return pa.schema(fields)
 
     def _fetch_info(self, fs: Any) -> dict:
@@ -282,53 +287,73 @@ class LeRobotDatasourceMetadata:
 
 
 class LeRobotReadTask(ReadTask):
-    """A Ray Data read task for one contiguous row range of a LeRobot dataset.
+    """A Ray Data read task covering one or more contiguous row segments.
 
-    Encapsulates the full read pipeline: path resolution, parquet reading,
-    video decoding, and batch assembly.  File paths are resolved at read
-    time inside :meth:`_read`, so no I/O happens on the driver.
+    Each segment is a ``(root_index, start, end)`` triple referencing a
+    contiguous row range within one root of :class:`LeRobotDatasource`.
+    A task may span multiple roots; segments are read independently.
 
     Constructed by :meth:`LeRobotDatasource.get_read_tasks`; not part of the
     public API.
 
     Args:
-        meta_ref:           Ray object reference to dataset metadata.
-        start:              First global row index (inclusive).
-        end:                Last global row index (exclusive).
+        segments:           ``(root_index, start, end)`` triples to read.
+        metas_ref:          Ray object reference to the list of dataset metadata.
         rows_per_batch:     Maximum rows per yielded Arrow table.
         per_task_row_limit: Passed through to :class:`ReadTask`.
     """
 
     def __init__(
         self,
-        meta_ref: "ray.ObjectRef",
-        start: int,
-        end: int,
+        segments: list[tuple[int, int, int]],
+        metas_ref: "ray.ObjectRef",
         rows_per_batch: int,
         per_task_row_limit: int | None = None,
     ) -> None:
-        meta: LeRobotDatasourceMetadata = ray.get(meta_ref)
+        metas: list[LeRobotDatasourceMetadata] = ray.get(metas_ref)
         # Resolve paths now (no I/O — pure computation) so input_files is
         # populated in BlockMetadata and the result can be reused in _read.
-        paths = LeRobotReadTask._resolve_paths(meta, start, end)
-        parquet_segs, video_paths = paths[0], paths[1]
-        input_files = parquet_segs + [p for ps in video_paths.values() for p in ps]
+        total_rows = 0
+        size_bytes = 0
+        all_input_files: list[str] = []
+        resolved: list[tuple[int, int, int, Any]] = []
+        for root_idx, start, end in segments:
+            meta = metas[root_idx]
+            paths = LeRobotReadTask._resolve_paths(meta, start, end)
+            parquet_segs, video_paths = paths[0], paths[1]
+            all_input_files.extend(parquet_segs)
+            all_input_files.extend(p for ps in video_paths.values() for p in ps)
+            total_rows += end - start
+            size_bytes += (end - start) * meta.estimated_row_size_bytes
+            resolved.append((root_idx, start, end, paths))
 
+        schema = metas[segments[0][0]].schema
         block_metadata = BlockMetadata(
-            num_rows=end - start,
-            size_bytes=(end - start) * meta.estimated_row_size_bytes,
-            input_files=input_files,
+            num_rows=total_rows,
+            size_bytes=size_bytes,
+            input_files=all_input_files,
             exec_stats=None,
         )
-        super().__init__(self._read, block_metadata, meta.schema, per_task_row_limit)
-        self._meta_ref = meta_ref
-        self._start = start
-        self._end = end
+        super().__init__(self._read, block_metadata, schema, per_task_row_limit)
+        self._metas_ref = metas_ref
+        self._segments_resolved = resolved
         self._rows_per_batch = rows_per_batch
-        self._resolved_paths = paths
 
     def _read(self) -> Iterator[pa.Table]:
-        """Stream decoded rows as Arrow tables.
+        """Stream decoded rows as Arrow tables, iterating over all segments."""
+        metas: list[LeRobotDatasourceMetadata] = ray.get(self._metas_ref)
+        for root_idx, start, end, resolved_paths in self._segments_resolved:
+            yield from self._read_segment(metas[root_idx], start, end, root_idx, resolved_paths)
+
+    def _read_segment(
+        self,
+        meta: "LeRobotDatasourceMetadata",
+        start: int,
+        end: int,
+        dataset_index: int,
+        resolved_paths: tuple,
+    ) -> Iterator[pa.Table]:
+        """Stream decoded rows for one ``[start, end)`` range within a single root.
 
         Data flow
         ---------
@@ -359,9 +384,7 @@ class LeRobotReadTask(ReadTask):
             yield remaining buffered rows as a final batch
 
         """
-        meta = ray.get(self._meta_ref)
-        start, end = self._start, self._end
-        parquet_segs, video_paths, video_start_ts, ep_from_ts = self._resolved_paths
+        parquet_segs, video_paths, video_start_ts, ep_from_ts = resolved_paths
 
         fs, _ = fsspec.core.url_to_fs(meta.root)
         is_local = fs.protocol == "file" if isinstance(fs.protocol, str) else "file" in fs.protocol
@@ -404,7 +427,7 @@ class LeRobotReadTask(ReadTask):
 
                     if len(task_list) >= self._rows_per_batch:
                         pq_buffer.append(pq_table.slice(seg_start, row_idx + 1 - seg_start))
-                        yield self._build_batch(meta.video_keys, pq_buffer, frame_buffers, task_list)
+                        yield self._build_batch(meta.video_keys, pq_buffer, frame_buffers, task_list, dataset_index)
                         pq_buffer = []
                         frame_buffers = {k: [] for k in meta.video_keys}
                         task_list = []
@@ -418,7 +441,7 @@ class LeRobotReadTask(ReadTask):
                 it.close()
 
         if pq_buffer:
-            yield self._build_batch(meta.video_keys, pq_buffer, frame_buffers, task_list)
+            yield self._build_batch(meta.video_keys, pq_buffer, frame_buffers, task_list, dataset_index)
 
     @staticmethod
     def _resolve_paths(
@@ -551,6 +574,7 @@ class LeRobotReadTask(ReadTask):
         pq_buffer: list[pa.Table],
         frame_buffers: dict[str, list[np.ndarray]],
         task_list: list[str],
+        dataset_index: int,
     ) -> pa.Table:
         """Assemble one Arrow batch from buffered parquet rows, decoded frames, and tasks."""
         table = pa.concat_tables(pq_buffer)
@@ -561,6 +585,7 @@ class LeRobotReadTask(ReadTask):
         for k in video_keys:
             columns[k] = ArrowVariableShapedTensorArray.from_numpy(frame_buffers[k])
         columns["task"] = pa.array(task_list, type=pa.string())
+        columns["dataset_index"] = pa.array([dataset_index] * len(task_list), type=pa.int32())
         return pa.table(columns)
 
     @staticmethod
@@ -623,13 +648,16 @@ class LeRobotDatasource(Datasource):
 
     def __init__(
         self,
-        root: str | Path,
+        root: str | Path | list[str | Path],
         partitioning: Partitioning | str = Partitioning.FILE_GROUP,
         **kwargs: Any,
     ):
         """
         Args:
-            root: Path or URI to the dataset root (local, ``gs://``, ``s3://``).
+            root: Path or URI to the dataset root (local, ``gs://``, ``s3://``),
+                or a list of such paths to read multiple datasets as one.
+                All roots must share the same ``video_keys``, ``fps``, and
+                non-video feature names.
             partitioning: How to divide the dataset into read tasks.
                 Accepts a :class:`Partitioning` member or its string value.
                 Defaults to ``FILE_GROUP``.
@@ -637,12 +665,41 @@ class LeRobotDatasource(Datasource):
                 ``ROW_BLOCK`` requires ``block_size``; other modes take none.
 
         Raises:
-            ValueError: If *partitioning* is not recognised, or if
-                ``block_size`` is omitted for ``ROW_BLOCK`` mode.
+            ValueError: If *partitioning* is not recognised, if
+                ``block_size`` is omitted for ``ROW_BLOCK`` mode, or if
+                roots have incompatible schemas.
         """
         super().__init__()
 
-        self.meta = LeRobotDatasourceMetadata(root)
+        roots = [root] if isinstance(root, (str, Path)) else list(root)
+        self.metas = [LeRobotDatasourceMetadata(r) for r in roots]
+
+        if len(self.metas) > 1:
+            ref = self.metas[0]
+            for m in self.metas[1:]:
+                if sorted(m.video_keys) != sorted(ref.video_keys):
+                    raise ValueError(
+                        f"video_keys mismatch: {ref.root!r} has {ref.video_keys} "
+                        f"but {m.root!r} has {m.video_keys}"
+                    )
+                if m.info["fps"] != ref.info["fps"]:
+                    raise ValueError(
+                        f"fps mismatch: {ref.root!r} has {ref.info['fps']} "
+                        f"but {m.root!r} has {m.info['fps']}"
+                    )
+                ref_feats = {
+                    k for k, v in ref.info["features"].items()
+                    if v.get("dtype") not in ("video",) and k != "task"
+                }
+                m_feats = {
+                    k for k, v in m.info["features"].items()
+                    if v.get("dtype") not in ("video",) and k != "task"
+                }
+                if ref_feats != m_feats:
+                    raise ValueError(
+                        f"Feature mismatch: {ref.root!r} has {sorted(ref_feats)} "
+                        f"but {m.root!r} has {sorted(m_feats)}"
+                    )
 
         if isinstance(partitioning, Partitioning):
             partitioning = partitioning.value
@@ -658,15 +715,18 @@ class LeRobotDatasource(Datasource):
         self._slice_kwargs: dict[str, Any] = kwargs
 
         logger.info(
-            "LeRobotDatasource ready: %d episodes, %d frames, %d cameras %s, "
-            "mode=%r, root=%s",
-            self.meta.total_episodes,
-            self.meta.total_frames,
+            "LeRobotDatasource ready: %d roots, %d total frames, %d cameras %s, mode=%r",
+            len(self.metas),
+            sum(m.total_frames for m in self.metas),
             len(self.meta.video_keys),
             self.meta.video_keys,
             partitioning,
-            self.meta.root,
         )
+
+    @property
+    def meta(self) -> LeRobotDatasourceMetadata:
+        """Metadata for the first root; use ``self.metas`` for all roots."""
+        return self.metas[0]
 
     # ------------------------------------------------------------------
     # Slicing helpers — called from get_read_tasks to produce row ranges
@@ -788,8 +848,8 @@ class LeRobotDatasource(Datasource):
         total = ds_meta.total_frames
         return [(i, min(i + block_size, total)) for i in range(0, total, block_size)]
 
-    def _slice(self) -> list[tuple[int, int]]:
-        """Return sorted, contiguous row ranges for this datasource's partitioning."""
+    def _slice(self) -> list[tuple[int, int, int]]:
+        """Return ``(root_index, start, end)`` triples for all roots, sorted."""
         slice_fns = {
             "sequential": self._slices_sequential,
             "episode": self._slices_by_episode,
@@ -797,14 +857,18 @@ class LeRobotDatasource(Datasource):
             "chain": self._slices_by_chain,
             "row_block": self._slices_by_row_block,
         }
-        row_ranges = sorted(slice_fns[self._partitioning](self.meta, **self._slice_kwargs))
-        for i in range(1, len(row_ranges)):
-            if row_ranges[i - 1][1] != row_ranges[i][0]:
-                raise ValueError(
-                    f"Non-contiguous slices: slice {i - 1} ends at row "
-                    f"{row_ranges[i - 1][1]} but slice {i} starts at row {row_ranges[i][0]}."
-                )
-        return row_ranges
+        all_ranges: list[tuple[int, int, int]] = []
+        for root_idx, meta in enumerate(self.metas):
+            ranges = sorted(slice_fns[self._partitioning](meta, **self._slice_kwargs))
+            for i in range(1, len(ranges)):
+                if ranges[i - 1][1] != ranges[i][0]:
+                    raise ValueError(
+                        f"Non-contiguous slices in root {root_idx} ({meta.root!r}): "
+                        f"slice {i - 1} ends at row {ranges[i - 1][1]} "
+                        f"but slice {i} starts at row {ranges[i][0]}."
+                    )
+            all_ranges.extend((root_idx, s, e) for s, e in ranges)
+        return all_ranges
 
     def _rows_per_batch(self, data_context: DataContext | None) -> int:
         """Derive rows-per-batch from the Ray DataContext block-size target."""
@@ -822,8 +886,7 @@ class LeRobotDatasource(Datasource):
 
     def estimate_inmemory_data_size(self) -> int | None:
         """Hint for Ray Data's memory-aware scheduling."""
-        size = self.meta.total_frames * self.meta.estimated_row_size_bytes
-        return size or None
+        return sum(m.total_frames * m.estimated_row_size_bytes for m in self.metas) or None
 
     def plan(self, parallelism: int = 0) -> list[dict]:
         """Return the read plan as a list of task descriptors — no I/O, no Ray objects.
@@ -850,7 +913,7 @@ class LeRobotDatasource(Datasource):
         if parallelism > 0 and len(row_ranges) > parallelism:
             n = len(row_ranges)
             base, remainder = divmod(n, parallelism)
-            groups: list[list[tuple[int, int]]] = []
+            groups: list[list[tuple[int, int, int]]] = []
             i = 0
             for g in range(parallelism):
                 chunk_size = base + (1 if g < remainder else 0)
@@ -861,22 +924,39 @@ class LeRobotDatasource(Datasource):
 
         result = []
         for idx, group in enumerate(groups):
-            start, end = group[0][0], group[-1][1]
-            parquet_segs, video_paths, _, _ = LeRobotReadTask._resolve_paths(
-                self.meta, start, end
+            segments = LeRobotDatasource._merge_segments(group)
+            num_rows = sum(e - s for _, s, e in segments)
+            size_bytes = sum(
+                (e - s) * self.metas[ri].estimated_row_size_bytes
+                for ri, s, e in segments
             )
             result.append(
                 {
                     "task": idx,
-                    "start": start,
-                    "end": end,
-                    "num_rows": end - start,
-                    "size_bytes": (end - start) * self.meta.estimated_row_size_bytes,
-                    "parquet_files": parquet_segs,
-                    "video_files": video_paths,
+                    "segments": segments,
+                    "num_rows": num_rows,
+                    "size_bytes": size_bytes,
                 }
             )
         return result
+
+    @staticmethod
+    def _merge_segments(
+        group: list[tuple[int, int, int]],
+    ) -> list[tuple[int, int, int]]:
+        """Collapse adjacent same-root consecutive triples into wider segments."""
+        if not group:
+            return []
+        segments: list[tuple[int, int, int]] = []
+        prev_ri, prev_s, prev_e = group[0]
+        for ri, s, e in group[1:]:
+            if ri == prev_ri and s == prev_e:
+                prev_e = e
+            else:
+                segments.append((prev_ri, prev_s, prev_e))
+                prev_ri, prev_s, prev_e = ri, s, e
+        segments.append((prev_ri, prev_s, prev_e))
+        return segments
 
     def get_read_tasks(
         self,
@@ -889,31 +969,30 @@ class LeRobotDatasource(Datasource):
         Steps:
 
         1. **Slice** — call the appropriate ``_slices_*`` helper (chosen by
-           *partitioning* at construction) to compute a sorted list of
-           contiguous ``(start, end)`` row ranges.
+           *partitioning* at construction) to get per-root ``(root_idx, start, end)``
+           triples; slicers themselves are unchanged and operate per root.
         2. **Group** — if there are more ranges than *parallelism* allows,
-           merge consecutive ranges so groups differ in size by at most one.
+           merge consecutive triples so groups differ in size by at most one.
         3. **Wrap** — create one :class:`LeRobotReadTask` per group.  Each task
-           receives the merged ``(start, end)`` span and a shared
-           ``ray.ObjectRef`` to the dataset metadata; file path resolution
-           and all I/O happen on the worker.
+           receives its segment list and a shared ``ray.ObjectRef`` to the full
+           metadata list; file path resolution and all I/O happen on the worker.
         """
         task_plan = self.plan(parallelism)
 
         logger.info(
-            "%d tasks, %d total frames, %d cameras",
+            "%d tasks, %d total frames, %d roots, %d cameras",
             len(task_plan),
-            self.meta.total_frames,
+            sum(m.total_frames for m in self.metas),
+            len(self.metas),
             len(self.meta.video_keys),
         )
 
-        meta_ref = ray.put(self.meta)
+        metas_ref = ray.put(self.metas)
         rows_per_batch = self._rows_per_batch(data_context)
         return [
             LeRobotReadTask(
-                meta_ref=meta_ref,
-                start=entry["start"],
-                end=entry["end"],
+                segments=entry["segments"],
+                metas_ref=metas_ref,
                 rows_per_batch=rows_per_batch,
                 per_task_row_limit=per_task_row_limit,
             )
@@ -922,11 +1001,11 @@ class LeRobotDatasource(Datasource):
 
 
 def read_lerobot(
-    root: str | Path,
+    root: str | Path | list[str | Path],
     partitioning: Partitioning | str = Partitioning.FILE_GROUP,
     **kwargs: Any,
 ) -> "ray.data.Dataset":
-    """Read a LeRobot dataset as a Ray Data ``Dataset``.
+    """Read one or more LeRobot datasets as a single Ray Data ``Dataset``.
 
     Convenience wrapper around ``ray.data.read_datasource(LeRobotDatasource(...))``.
     Video frames are decoded with PyAV and are pixel-identical to lerobot's
@@ -940,14 +1019,18 @@ def read_lerobot(
     ``ray.data.read_datasource``; the metadata is available via ``source.meta``.
 
     Args:
-        root: Path or URI to the dataset root (local, ``gs://``, ``s3://``).
+        root: Path or URI to the dataset root (local, ``gs://``, ``s3://``),
+            or a list of such paths.  All roots must have the same ``video_keys``,
+            ``fps``, and non-video feature names.  Each output row includes a
+            ``dataset_index`` (int32) column indicating which root it came from.
+            ``episode_index`` and ``index`` retain per-root local values.
         partitioning: How to partition the dataset into read tasks.
             See :class:`Partitioning` for options; defaults to ``FILE_GROUP``.
         **kwargs: Forwarded to :class:`LeRobotDatasource` as slicer kwargs.
 
     Returns:
         A Ray Data ``Dataset`` of fully-decoded frames with columns listed in
-        the module docstring.
+        the module docstring, plus ``dataset_index``.
 
     Example::
 
@@ -957,6 +1040,7 @@ def read_lerobot(
         ds = read_lerobot("/data/my_dataset")
         ds = read_lerobot("gs://bucket/dataset", partitioning=Partitioning.EPISODE)
         ds = read_lerobot("/data/my_dataset", partitioning=Partitioning.ROW_BLOCK, block_size=1024)
+        ds = read_lerobot(["/data/ds1", "/data/ds2"])
     """
     return ray.data.read_datasource(
         LeRobotDatasource(root=root, partitioning=partitioning, **kwargs)
