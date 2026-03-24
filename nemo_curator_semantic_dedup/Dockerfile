@@ -28,16 +28,16 @@ RUN python -m pip install --upgrade pip setuptools wheel
 RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 raft-dask-cu12 rmm-cu12 || true && \
     echo "Cleaned up pre-existing RAPIDS packages"
 
-# Clone NeMo-Curator from fork and install in editable mode
-# This ensures all Ray workers have the same code with your local edits
-ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
-ARG CURATOR_REF=avi-test
-# ARG CURATOR_REF=main
-# Cache bust for git clone - change this value to force re-clone after pushing to branch
+# Install NeMo-Curator's native CUDA dependencies (DALI, cuML, RAFT, etc.)
+# Only the compiled/binary deps matter here — the nemo_curator Python package
+# itself is overridden at runtime via PYTHONPATH=Curator in job.yaml, which
+# points to the local Curator/ directory uploaded with the working_dir.
+ARG CURATOR_REPO=https://github.com/NVIDIA-NeMo/Curator.git
+ARG CURATOR_REF=main
 ARG CURATOR_CACHE_BUST=2026-03-21-v1
-# RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
-#     git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
-#     uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
+RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
+    git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
+    uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
 
 # Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
 # cuML 25.6.* needs sklearn >= 1.5 (has _get_default_requests)
