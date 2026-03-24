@@ -48,7 +48,7 @@ def image_download_batch(batch: dict[str, Any]) -> dict[str, Any]:
     
     # Use ThreadPoolExecutor for parallel downloads within this batch
     # 50 threads means 50 concurrent downloads per Ray task
-    with ThreadPoolExecutor(max_workers=50) as executor:
+    with ThreadPoolExecutor(max_workers=100) as executor:
         batch["bytes"] = list(executor.map(lambda url: download_single_image(url, session), batch["url"]))
 
     return batch
@@ -157,8 +157,6 @@ def parquet_to_webdataset_ray(
         ds = ds.limit(max_entries)
         ds = ds.repartition(num_blocks=max(100, max_entries // 1000))
 
-    total_rows = ds.count()
-
     if concurrency is None:
         cluster_resources = ray.cluster_resources()
         concurrency = max(4, int(cluster_resources.get("CPU", 4)))
@@ -177,7 +175,8 @@ def parquet_to_webdataset_ray(
 
     total_success = sum(r["success_count"] for r in results)
     num_shards = len(results)
-    success_rate = (total_success / total_rows * 100) if total_rows > 0 else 0
+    total_attempted = max_entries if max_entries is not None else total_success
+    success_rate = (total_success / total_attempted * 100) if total_attempted > 0 else 0
     print(f"\n✓ Download complete: {total_success} images in {num_shards} shards ({success_rate:.1f}% success rate)")
 
-    return {"total_success": total_success, "total_attempted": total_rows, "num_shards": num_shards}
+    return {"total_success": total_success, "total_attempted": total_attempted, "num_shards": num_shards}

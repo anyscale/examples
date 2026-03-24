@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass
 import os
+import shutil
 from pathlib import Path
 import time
 
@@ -47,6 +48,7 @@ class Config:
     tar_files_per_partition: int
     batch_size: int
     embedding_batch_size: int
+    reader_cpus_per_task: int
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -65,7 +67,21 @@ class Config:
             tar_files_per_partition=int(os.environ.get("TAR_FILES_PER_PARTITION", "1")),
             batch_size=int(os.environ.get("BATCH_SIZE", "100")),
             embedding_batch_size=int(os.environ.get("EMBEDDING_BATCH_SIZE", "32")),
+            reader_cpus_per_task=int(os.environ.get("READER_CPUS_PER_TASK", "8")),
         )
+
+
+def _make_reader(config: Config) -> ImageReaderStage:
+    """Create an ImageReaderStage with capped concurrency to prevent OOM.
+
+    DALI reader tasks consume 10-25 GB each (full-resolution decode + GPU buffers).
+    By default each task requests only 1 CPU, so Ray schedules ~48 per node,
+    far exceeding the 184 GB node memory.  Requesting more CPUs per task limits
+    concurrency (e.g. 8 CPUs → 6 readers per 48-CPU node ≈ 90-150 GB).
+    """
+    reader = ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0)
+    reader.resources.cpus = config.reader_cpus_per_task
+    return reader
 
 
 def create_image_embedding_pipeline(config: Config) -> Pipeline:
@@ -78,7 +94,7 @@ def create_image_embedding_pipeline(config: Config) -> Pipeline:
         file_extensions=[".tar"],
     ))
 
-    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0))
+    pipeline.add_stage(_make_reader(config))
 
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=config.model_dir,
@@ -115,7 +131,7 @@ def create_image_deduplication_pipeline(config: Config) -> Pipeline:
         file_extensions=[".tar"],
     ))
 
-    pipeline.add_stage(ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0))
+    pipeline.add_stage(_make_reader(config))
 
     pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=config.removal_parquets_dir + "/duplicates",
@@ -134,6 +150,12 @@ def main(config: Config) -> None:
     """Main execution function for image semantic deduplication pipeline."""
     ray_client = RayClient()
     ray_client.start()
+
+    # Clean output directories from previous runs to avoid processing stale data
+    for d in [config.input_wds_dataset_dir, config.embeddings_dir,
+              config.removal_parquets_dir, config.output_dataset_dir]:
+        if os.path.exists(d):
+            shutil.rmtree(d)
 
     # Step 1: Download images and create WebDataset tar files
     os.makedirs(config.input_wds_dataset_dir, exist_ok=True)

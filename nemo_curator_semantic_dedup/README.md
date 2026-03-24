@@ -46,7 +46,21 @@ Step 4: Write deduplicated dataset (new tar shards without duplicates)
 
 ### Step 1: Parquet to WebDataset
 
-`main()` calls `parquet_to_webdataset_ray()` in [helper.py](./helper.py). Ray Data reads parquet columns (`url`, `caption`) from HuggingFace, distributes HTTP downloads across the cluster with `ThreadPoolExecutor` parallelism within each Ray task, validates and converts each image to RGB JPEG with Pillow, and packs them into WebDataset `.tar` shards on cluster storage. Each shard holds up to `ENTRIES_PER_TAR` images (default 500).
+`main()` calls `parquet_to_webdataset_ray()` in [helper.py](./helper.py), which builds a Ray Data pipeline to download images and pack them into WebDataset tar shards:
+
+```
+read_parquet (HF) → repartition → map_batches(download) → flat_map(validate) → map_batches(write_tar)
+```
+
+| Ray Data operator | Function | What it does |
+|-------------------|----------|-------------|
+| `read_parquet` | — | Lazily reads `url` and `caption` columns from HuggingFace via `HfFileSystem`. |
+| `repartition` | — | Splits large parquet blocks (~millions of rows) into ~1000-row blocks so Ray can parallelize downstream work across the cluster. |
+| `map_batches` | `image_download_batch` | Downloads images in batches of 100. Within each Ray task, a `ThreadPoolExecutor` with 50 threads downloads URLs concurrently — so you get parallelism at two levels: Ray distributes batches across cluster CPUs, and threads parallelize I/O within each batch. |
+| `flat_map` | `process_image` | Validates each image with Pillow (`.verify()`), converts to RGB JPEG, and drops failures by returning `[]`. Handles all image modes (RGBA, palette, grayscale, CMYK) by compositing onto a white background. |
+| `map_batches` | `write_tar_batch` | Packs `ENTRIES_PER_TAR` images (default 500) into a single `.tar` shard on cluster storage. Each shard gets a unique name based on node ID + UUID to avoid collisions when multiple nodes write simultaneously. |
+
+The entire pipeline streams end-to-end — Ray Data handles backpressure so fast stages don't overwhelm slow ones, and data flows through without loading the full dataset into memory. `.take_all()` at the end triggers execution.
 
 ### Step 2: Image embedding pipeline
 
@@ -77,7 +91,7 @@ This step runs on a `RayActorPoolExecutor`, which creates a fixed pool of long-l
 
 ## Cluster storage
 
-All intermediate and output data lives under `/mnt/cluster_storage/`, a shared network filesystem (backed by S3) that is automatically mounted on every node in the cluster.
+All intermediate and output data lives under `/mnt/cluster_storage/`, a shared network filesystem (backed by S3) that is automatically mounted on every node in the cluster. This is necessary because Steps 2, 3, and 4 run as separate pipeline executions with different executors (`RayDataExecutor` for streaming stages, `RayActorPoolExecutor` for K-means). When one step finishes, its data is no longer in memory — the next step reads it back from disk. A shared filesystem ensures any node can read what any other node wrote, regardless of which step produced it.
 
 | Step | Directory | Contents |
 |------|-----------|----------|
@@ -92,8 +106,6 @@ All configuration is done through environment variables in [job.yaml](./job.yaml
 
 ```bash
 anyscale job submit -f job.yaml \
-  --env INPUT_PARQUET=hf://datasets/your-org/your-dataset/ \
-  --env MAX_ENTRIES=10000 \
   --env HF_TOKEN=$HF_TOKEN
 ```
 
