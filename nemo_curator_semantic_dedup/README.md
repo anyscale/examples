@@ -2,7 +2,9 @@
 
 This example uses [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) to perform GPU-accelerated semantic deduplication on image datasets. It reads image URLs from a HuggingFace parquet dataset, downloads them into [WebDataset](https://github.com/webdataset/webdataset) tar shards, generates CLIP embeddings on GPUs, clusters them with K-means + DBSCAN to find near-duplicates, and writes a clean deduplicated dataset.
 
-## Install the Anyscale CLI (required version = 0.26.82+)
+## Install the Anyscale CLI
+
+(required version = 0.26.82+)
 
 ```bash
 pip install -U anyscale
@@ -56,7 +58,7 @@ read_parquet (HF) → repartition → map_batches(download) → flat_map(validat
 |-------------------|----------|-------------|
 | `read_parquet` | — | Lazily reads `url` and `caption` columns from HuggingFace via `HfFileSystem`. |
 | `repartition` | — | Splits large parquet blocks (~millions of rows) into ~1000-row blocks so Ray can parallelize downstream work across the cluster. |
-| `map_batches` | `image_download_batch` | Downloads images in batches of 100. Within each Ray task, a `ThreadPoolExecutor` with 50 threads downloads URLs concurrently — so you get parallelism at two levels: Ray distributes batches across cluster CPUs, and threads parallelize I/O within each batch. |
+| `map_batches` | `image_download_batch` | Downloads images in batches of 100. Within each Ray task, a `ThreadPoolExecutor` with 100 threads downloads URLs concurrently — so you get parallelism at two levels: Ray distributes batches across cluster CPUs, and threads parallelize I/O within each batch. |
 | `flat_map` | `process_image` | Validates each image with Pillow (`.verify()`), converts to RGB JPEG, and drops failures by returning `[]`. Handles all image modes (RGBA, palette, grayscale, CMYK) by compositing onto a white background. |
 | `map_batches` | `write_tar_batch` | Packs `ENTRIES_PER_TAR` images (default 500) into a single `.tar` shard on cluster storage. Each shard gets a unique name based on node ID + UUID to avoid collisions when multiple nodes write simultaneously. |
 
@@ -83,7 +85,7 @@ This pipeline runs on a `RayDataExecutor`, which treats the stages as a streamin
 1. **K-means clustering** (`n_clusters=100`) — groups similar embeddings together using RAFT/NCCL across all GPU actors.
 2. **DBSCAN within clusters** (`eps=0.01`) — finds near-duplicate pairs based on cosine distance within each cluster.
 
-This step runs on a `RayActorPoolExecutor`, which creates a fixed pool of long-lived Ray actors, each holding a GPU. This is needed because K-means requires state across batches — all GPU actors must coordinate via RAFT/NCCL to fit a single model across the full dataset. A stateless streaming executor can't do that.
+This step runs on a `RayActorPoolExecutor`, which creates a fixed pool of long-lived Ray actors, each holding a GPU. This is needed because K-means is iterative: each actor holds a shard of the embeddings plus the current 100 cluster centroids in GPU memory, and on every iteration all actors reassign points, compute partial centroid sums, then synchronize via NCCL to update the shared centroids. That state (centroids + assignments) must persist across iterations until convergence — a stateless streaming executor, which processes each batch independently and forgets it, can't do that.
 
 ### Step 4: Write deduplicated dataset
 

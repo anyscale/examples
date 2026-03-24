@@ -83,8 +83,6 @@ env_vars:
   # Disable Python output buffering for real-time logs
   PYTHONUNBUFFERED: "1"
 
-  # Use local Curator/ from working_dir on all nodes (overrides Docker image's installed copy)
-  PYTHONPATH: "Curator"
 
 # The entrypoint script (-u for unbuffered output)
 entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.py

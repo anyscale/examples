@@ -28,13 +28,10 @@ RUN python -m pip install --upgrade pip setuptools wheel
 RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 raft-dask-cu12 rmm-cu12 || true && \
     echo "Cleaned up pre-existing RAPIDS packages"
 
-# Install NeMo-Curator's native CUDA dependencies (DALI, cuML, RAFT, etc.)
-# Only the compiled/binary deps matter here — the nemo_curator Python package
-# itself is overridden at runtime via PYTHONPATH=Curator in job.yaml, which
-# points to the local Curator/ directory uploaded with the working_dir.
-ARG CURATOR_REPO=https://github.com/NVIDIA-NeMo/Curator.git
-ARG CURATOR_REF=main
-ARG CURATOR_CACHE_BUST=2026-03-21-v1
+# Install NeMo-Curator from the fork branch with CUDA dependencies (DALI, cuML, RAFT, etc.)
+ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
+ARG CURATOR_REF=avi-test
+ARG CURATOR_CACHE_BUST=2026-03-24-v1
 RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
     git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
     uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
