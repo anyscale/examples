@@ -31,10 +31,10 @@ RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 r
 # Install NeMo-Curator from the fork branch with CUDA dependencies (DALI, cuML, RAFT, etc.)
 ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
 ARG CURATOR_REF=avi-test
-ARG CURATOR_CACHE_BUST=2026-03-24-v1
+ARG CURATOR_CACHE_BUST=2026-03-25-v3
 RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
     git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
-    uv pip install --system -e /home/ray/NeMo-Curator[image_cuda12]
+    uv pip install --system /home/ray/NeMo-Curator[image_cuda12]
 
 # Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
 # cuML 25.6.* needs sklearn >= 1.5 (has _get_default_requests)
@@ -54,6 +54,15 @@ RUN uv pip install --system \
 
 # Set environment variable for model directory
 ENV MODEL_DIR=/home/ray/model_weights
+
+# NCCL diagnostic output — baked into the image so every worker node has it.
+# (job.yaml env_vars only reach the driver; these ENV lines reach all nodes.)
+ENV NCCL_DEBUG=WARN
+
+# Pre-download CLIP model weights into the image so workers never race on download
+RUN python -c "\
+from nemo_curator.models.clip import CLIPImageEmbeddings; \
+CLIPImageEmbeddings.download_weights_on_node('/home/ray/model_weights')"
 
 # Create output directories
 RUN mkdir -p /home/ray/data/webdataset \

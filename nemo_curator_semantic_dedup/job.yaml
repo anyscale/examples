@@ -73,15 +73,23 @@ env_vars:
   EMBEDDING_BATCH_SIZE: "64"
   TAR_FILES_PER_PARTITION: "1"
   ENTRIES_PER_TAR: "500"
-  # CPUs per reader task — controls max concurrent readers per node (48 CPUs / 8 = 6 readers)
-  # Increase this if ImageReaderStageTask still OOMs; decrease for more throughput
-  READER_CPUS_PER_TASK: "8"  
+  # CPUs per reader task — controls max concurrent readers per node.
+  # 48 CPUs / 16 = 3 readers max.  This also prevents readers and embedding
+  # actors from running simultaneously on the same node, avoiding both
+  # system-RAM OOM (readers ~10-55 GB each) and GPU-VRAM OOM (reader
+  # processes create CUDA contexts that compete with CLIP model loading).
+  READER_CPUS_PER_TASK: "16"
   
   # Don't hide GPUs from tasks that request num_gpus=0 (needed for DALI)
   RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO: "0"
   
   # Disable Python output buffering for real-time logs
   PYTHONUNBUFFERED: "1"
+
+  # NCCL diagnostic output (also set as Dockerfile ENV for worker nodes)
+  NCCL_DEBUG: "WARN"
+
+  PYTHONPATH: "Curator"
 
 
 # The entrypoint script (-u for unbuffered output)

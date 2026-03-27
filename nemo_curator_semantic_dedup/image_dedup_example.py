@@ -74,13 +74,16 @@ class Config:
 def _make_reader(config: Config) -> ImageReaderStage:
     """Create an ImageReaderStage with capped concurrency to prevent OOM.
 
-    DALI reader tasks consume 10-25 GB each (full-resolution decode + GPU buffers).
+    DALI reader tasks consume 10-55 GB each (full-resolution decode buffers).
     By default each task requests only 1 CPU, so Ray schedules ~48 per node,
-    far exceeding the 184 GB node memory.  Requesting more CPUs per task limits
-    concurrency (e.g. 8 CPUs → 6 readers per 48-CPU node ≈ 90-150 GB).
+    far exceeding the 184 GB node memory.  Requesting more CPUs per task
+    limits concurrency (e.g. 16 CPUs → 3 readers per 48-CPU node).  This
+    also prevents readers and embedding actors from running simultaneously,
+    avoiding GPU-VRAM exhaustion from reader CUDA contexts.
     """
     reader = ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0)
     reader.resources.cpus = config.reader_cpus_per_task
+    reader.resources.gpus = 0.01
     return reader
 
 
