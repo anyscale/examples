@@ -1,0 +1,56 @@
+# Anyscale LLM Service Configuration
+# Deploy with: anyscale service deploy -f service.yaml
+
+name: dp-group-fault-tolerance
+image_uri: anyscale/ray-llm:nightly-py311-cu128
+
+# Compute configuration
+compute_config:
+  head_node:
+    required_resources:
+      CPU: 4
+      memory: 16Gi
+  worker_nodes:
+    - required_resources:
+        CPU: 48
+        GPU: 4
+        accelerator: L4
+        memory: 32Gi
+      min_nodes: 1
+      max_nodes: 2
+
+# Ray Serve application
+applications:
+  - name: llm-endpoint
+    route_prefix: /
+    import_path: ray.serve.llm:build_dp_openai_app
+    args:
+      llm_config:
+        model_loading_config:
+          model_id: microsoft/Phi-tiny-MoE-instruct
+          model_source: microsoft/Phi-tiny-MoE-instruct
+        deployment_config:
+          num_replicas: auto
+          autoscaling_config:
+            min_replicas: 1
+            max_replicas: 4
+            upscale_delay_s: 10
+            downscale_delay_s: 20
+            metrics_interval_s: 2
+            look_back_period_s: 20
+            target_ongoing_requests: 5
+          max_ongoing_requests: 20
+        engine_kwargs:
+          tensor_parallel_size: 1
+          pipeline_parallel_size: 1
+          data_parallel_size: 2
+          distributed_executor_backend: ray
+          max_model_len: 1024
+          max_num_seqs: 32
+        placement_group_config:
+          bundles:
+            - GPU: 1
+              CPU: 1
+        runtime_env:
+          env_vars:
+            VLLM_DISABLE_COMPILE_CACHE: "1"
