@@ -1,5 +1,5 @@
 # Anyscale LLM Service Configuration
-# Deploy with: anyscale service deploy -f service.yaml
+# Deploy with: anyscale service deploy -f dp_group_autoscaling_service.yaml
 
 name: dp-group-fault-tolerance
 image_uri: anyscale/ray-llm:nightly-py311-cu128
