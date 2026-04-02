@@ -72,13 +72,35 @@ anyscale service terminate --name dp-group-fault-tolerance
 
 ## Demo 2: Fault tolerance
 
-Run [`fault_tolerance_demo.py`](https://github.com/anyscale/examples/blob/main/wide_ep_fault_tolerance/fault_tolerance_demo.py) as an Anyscale job. The script deploys the model with `dp_size=2, num_replicas=2`, sends continuous traffic, kills a GPU process to simulate a real-world failure, and verifies that the DP group recovers:
+This demo triggers a GPU failure against the live service while traffic is running, and observes gang recovery.
+
+### Step 1: Start a background load test
+
+Keep traffic flowing so you can observe requests succeed, dip during recovery, and succeed again:
 
 ```bash
-anyscale job submit -f job.yaml
+pip install -r requirements.txt
+
+python run_locust.py \
+    --host $SERVICE_URL \
+    --token $SERVICE_TOKEN \
+    --baseline-users 10 \
+    --peak-users 10
 ```
 
-View job logs in the [jobs tab](https://console.anyscale.com/jobs). The output reports how many requests were served and how many errored during the fault window.
+### Step 2: Kill a GPU process
+
+Open the [Anyscale console](https://console.anyscale.com/services), navigate to your service, and click on the **Nodes** tab. Click on any worker node and open a **Terminal**. Then run:
+
+```bash
+kill -9 $(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits | head -1)
+```
+
+### Step 3: Observe recovery
+
+- The **Locust output** will show a brief spike in latency or errors as the affected DP group tears down.
+- The **Ray Serve dashboard** (accessible from the service page) shows replica count drop from 4 to 2, then recover back to 4.
+- The surviving DP group continues serving requests throughout — only requests in-flight on the killed group are affected.
 
 ## Understanding the example
 
