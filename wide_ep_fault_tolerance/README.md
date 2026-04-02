@@ -1,181 +1,88 @@
-# DP Group Fault Tolerance for LLM Serving
+# Wide EP DP Group Fault Tolerance
 
-Demonstrate data-parallel (DP) group fault tolerance and autoscaling on Ray Serve LLM deployments. Both demos use gang-scheduled data-parallel deployments (`DPServer`), where all workers in a DP group are restarted atomically on failure.
+This example demonstrates data-parallel (DP) group fault tolerance and autoscaling for LLM serving with Ray Serve. It uses gang-scheduled DP deployments (`DPServer`), where all workers in a DP group are restarted atomically when one fails.
 
-## Repository Structure
-
-```
-├── dp_group_fault_tolerance_demo.py   # Demo 1: fault tolerance via Python builders
-├── dp_group_autoscaling_service.yaml  # Demo 2: autoscaling via declarative YAML config
-├── locustfile.py                      # Locust load test with shaped traffic pattern
-├── run_locust.py                      # CLI wrapper for running the load test
-├── requirements.txt                   # Python dependencies
-```
-
-## Prerequisites
-
-- Python 3.10+
-- An [Anyscale](https://www.anyscale.com/) account with API access
-- `anyscale` CLI installed and authenticated
-- A Ray cluster with GPUs (for Demo 1) or Anyscale platform access (for Demo 2).
+## Install the Anyscale CLI
 
 ```bash
-pip install -r requirements.txt
+pip install -U anyscale
+anyscale login
 ```
 
-## Note
-You can either use Python builder or declarative YAML config pattern to spin up a service. The DP group fault tolerance and autoscaling features are agnostic to the builder pattern. Both features are fully supported in Ray OSS 2.55.
-
----
-
-## Demo 1: Fault Tolerance (Python Builders)
-
-This demo uses `dp_group_fault_tolerance_demo.py` to deploy a DP group locally on a Ray cluster using Python builders, send continuous traffic, kill a GPU process simulating real-world GPU failures, and observe DP group recovery.
-
-### How it works
-
-The script uses `build_dp_deployment` from `ray.serve.llm` to construct a `DPServer` deployment programmatically:
-
-```python
-from ray.serve.llm import LLMConfig, ModelLoadingConfig, build_dp_deployment
-
-llm_config = LLMConfig(
-    model_loading_config=ModelLoadingConfig(
-        model_id="microsoft/Phi-tiny-MoE-instruct",
-        model_source="microsoft/Phi-tiny-MoE-instruct",
-    ),
-    deployment_config=dict(
-        num_replicas=2,
-    ),
-    engine_kwargs=dict(
-        tensor_parallel_size=1,
-        pipeline_parallel_size=1,
-        data_parallel_size=2,
-        distributed_executor_backend="ray",
-        max_model_len=1024,
-        max_num_seqs=32,
-        enforce_eager=True,
-    ),
-    runtime_env={
-        "env_vars": {
-            "VLLM_DISABLE_COMPILE_CACHE": "1",
-        },
-    },
-)
-
-handle = serve.run(build_dp_deployment(llm_config), blocking=False)
-```
-
-With `dp_size=2` and `num_replicas=2`, this creates **4 total Ray Serve replicas** (2 DP groups (`num_replicas`) x 2 workers (`dp_size`) each).
-
-### What the script does
-
-1. **Deploy** — calls `serve.run(build_dp_deployment(llm_config))` and waits for all 4 replicas to be `RUNNING`.
-2. **Send traffic** — spawns a `RequestSender` Ray actor that sends 10 concurrent completion requests in a loop, then warms up for 2 minutes.
-3. **Kill a GPU process** — uses `nvidia-smi --query-compute-apps=pid` to find a GPU process and kills it with `SIGKILL`.
-4. **Observe gang teardown** — waits for the running replica count to drop below 4 (the entire DP group containing the killed worker is torn down).
-5. **Observe recovery** — waits for all 4 replicas to return to `RUNNING` (the gang is restarted atomically).
-6. **Report results** — prints total requests sent and errors encountered during the fault.
-
-### Run it
-
-On a Ray cluster with at least 4 GPUs:
+## Clone the example
 
 ```bash
-python dp_group_fault_tolerance_demo.py
+git clone https://github.com/anyscale/examples.git
+cd examples/wide_ep_fault_tolerance
 ```
 
-The script keeps the service alive after recovery so you can inspect the Ray Dashboard. Press `Ctrl+C` to shut down.
+## Demo 1: Autoscaling service
 
-
-### What to expect
-
-- After killing a GPU process, the **entire DP group** containing that worker is torn down (replica count drops from 4 to 2).
-- The surviving DP group continues serving requests.
-- The killed DP group is restarted atomically — both workers come back together.
-- Replica count returns to 4.
-- The `RequestSender` reports errors only for requests that were in-flight on the killed group.
-
----
-
-## Demo 2: Autoscaling (Declarative YAML)
-
-This demo deploys the same model on Anyscale using a declarative `dp_group_autoscaling_service.yaml`, then uses Locust to drive shaped traffic that triggers autoscaling.
-
-### Deploy
+Deploy an OpenAI-compatible endpoint that autoscales DP groups based on traffic:
 
 ```bash
-anyscale service deploy -f dp_group_autoscaling_service.yaml
+anyscale service deploy -f service.yaml
 ```
 
-Note the service URL and auth token from the output.
-
-### dp_group_autoscaling_service.yaml configuration reference
-
-The service deploys an OpenAI-compatible LLM endpoint via `ray.serve.llm:build_dp_openai_app`, which constructs a Ray Serve application with a gang-scheduled `DPServer`. Unlike Demo 1 which uses a fixed replica count, this config uses `num_replicas: auto` to enable autoscaling.
-
-
-### Verify the service
+Wait for the service to be ready:
 
 ```bash
-anyscale service status --name dp-group-fault-tolerance
+anyscale service wait --name dp-group-fault-tolerance --state RUNNING --timeout-s 600
 ```
 
-Wait until the service state is `RUNNING`.
+The `anyscale service deploy` command outputs a line that looks like:
 
-### Send a test request
+```text
+curl -H "Authorization: Bearer <SERVICE_TOKEN>" <SERVICE_URL>
+```
+
+Set the environment variables and send a test request:
 
 ```bash
-curl -H "Authorization: Bearer <TOKEN>" \
+export SERVICE_URL=<SERVICE_URL>
+export SERVICE_TOKEN=<SERVICE_TOKEN>
+
+curl -H "Authorization: Bearer $SERVICE_TOKEN" \
      -H "Content-Type: application/json" \
-     https://<SERVICE_URL>/v1/chat/completions \
+     $SERVICE_URL/v1/chat/completions \
      -d '{"model": "microsoft/Phi-tiny-MoE-instruct", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ### Generate load with Locust
 
-The load test uses a fixed **14-minute shaped traffic pattern** designed to trigger autoscaling:
-
-```
-  0:00 -  2:00   baseline (steady at --baseline-users)
-  2:00 -  6:00   ramp up to --peak-users
-  6:00 -  8:00   peak (steady at --peak-users)
-  8:00 - 12:00   ramp down to --baseline-users
- 12:00 - 14:00   baseline (steady at --baseline-users)
-```
-
-This shape is defined by the `TrafficShape` class in `locustfile.py`.
-
-#### Basic run
+Install dependencies and run the load test:
 
 ```bash
+pip install -r requirements.txt
+
 python run_locust.py \
-    --host https://<SERVICE_URL> \
-    --token <TOKEN> \
+    --host $SERVICE_URL \
+    --token $SERVICE_TOKEN \
     --baseline-users 10 \
     --peak-users 50
 ```
 
-#### Higher peak with shorter outputs
+The load test runs a 14-minute shaped traffic pattern (baseline → ramp up → peak → ramp down → baseline) designed to trigger autoscaling. Watch replica count change in the [services tab](https://console.anyscale.com/services).
 
-```bash
-python run_locust.py \
-    --host https://<SERVICE_URL> \
-    --token <TOKEN> \
-    --baseline-users 10 \
-    --peak-users 200 \
-    --max-tokens 32 \
-    --spawn-rate 10
-```
-
-### What to expect
-
-- During the ramp-up phase, `target_ongoing_requests: 5` is exceeded and the autoscaler adds DP groups (after `upscale_delay_s: 10`).
-- During the ramp-down phase, the autoscaler removes DP groups (after `downscale_delay_s: 20`).
-- Check the Anyscale console / Ray Serve dashboard for replica count changes.
-
-### Cleanup
+### Shutdown
 
 ```bash
 anyscale service terminate --name dp-group-fault-tolerance
 ```
+
+## Demo 2: Fault tolerance
+
+Run [`fault_tolerance_demo.py`](https://github.com/anyscale/examples/blob/main/wide_ep_fault_tolerance/fault_tolerance_demo.py) as an Anyscale job. The script deploys the model with `dp_size=2, num_replicas=2`, sends continuous traffic, kills a GPU process to simulate a real-world failure, and verifies that the DP group recovers:
+
+```bash
+anyscale job submit -f job.yaml
+```
+
+View job logs in the [jobs tab](https://console.anyscale.com/jobs). The output reports how many requests were served and how many errored during the fault window.
+
+## Understanding the example
+
+- [`service.yaml`](https://github.com/anyscale/examples/blob/main/wide_ep_fault_tolerance/service.yaml) deploys an OpenAI-compatible endpoint via `ray.serve.llm:build_dp_openai_app` with `data_parallel_size: 2`. Each replica spans 2 GPU workers scheduled as a placement group.
+- `num_replicas: auto` enables autoscaling between 1 and 4 DP groups based on ongoing request count (`target_ongoing_requests: 5`).
+- Gang scheduling ensures that if one worker in a DP group fails, the entire group is torn down and restarted together — preventing partial failures from leaving the deployment in an inconsistent state.
+- The fault tolerance demo uses `dp_size=2, num_replicas=2`, creating 4 total Ray Serve replicas (2 DP groups × 2 workers each). Killing one GPU process causes the entire group to tear down while the other group continues serving, then the killed group restarts atomically.
