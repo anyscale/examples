@@ -15,7 +15,7 @@ compute_config:
         CPU: 48
         GPU: 4
         accelerator: L4
-        memory: 32Gi
+        memory: 192Gi
       min_nodes: 1
       max_nodes: 2
 
