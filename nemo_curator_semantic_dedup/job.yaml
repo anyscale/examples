@@ -89,8 +89,6 @@ env_vars:
   # NCCL diagnostic output (also set as Dockerfile ENV for worker nodes)
   NCCL_DEBUG: "WARN"
 
-  PYTHONPATH: "Curator"
-
 
 # The entrypoint script (-u for unbuffered output)
 entrypoint: python -u examples/nemo_curator_semantic_dedup/image_dedup_example.py

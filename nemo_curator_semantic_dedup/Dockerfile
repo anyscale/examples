@@ -31,9 +31,7 @@ RUN python -m pip uninstall -y cuml-cu12 cudf-cu12 cugraph-cu12 pylibraft-cu12 r
 # Install NeMo-Curator from the fork branch with CUDA dependencies (DALI, cuML, RAFT, etc.)
 ARG CURATOR_REPO=https://github.com/avigyabb/Curator.git
 ARG CURATOR_REF=avi-test
-ARG CURATOR_CACHE_BUST=2026-03-25-v3
-RUN echo "Cache bust: ${CURATOR_CACHE_BUST}" && \
-    git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
+RUN git clone --depth 1 -b ${CURATOR_REF} ${CURATOR_REPO} /home/ray/NeMo-Curator && \
     uv pip install --system /home/ray/NeMo-Curator[image_cuda12]
 
 # Re-upgrade scikit-learn AFTER nemo-curator in case it was downgraded
