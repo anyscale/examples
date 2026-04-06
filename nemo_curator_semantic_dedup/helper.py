@@ -17,15 +17,14 @@
 from __future__ import annotations
 
 import io
-import json
 import os
-import tarfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-
 import requests
+from loguru import logger
 from PIL import Image
+import webdataset as wds
 
 
 def download_single_image(url: str, session: requests.Session) -> bytes | None:
@@ -109,23 +108,14 @@ def write_tar_batch(batch: dict[str, Any], output_dir: str) -> dict[str, Any]:
     jpeg_list = batch["jpeg_bytes"]
     num_images = len(urls)
 
-    with tarfile.open(tar_path, "w") as tar:
+    with wds.TarWriter(tar_path) as sink:
         for i in range(num_images):
-            key = f"{shard_id}_{i:06d}"
-
-            jpg_info = tarfile.TarInfo(name=f"{key}.jpg")
-            jpg_info.size = len(jpeg_list[i])
-            tar.addfile(jpg_info, fileobj=io.BytesIO(jpeg_list[i]))
-
-            caption_bytes = str(captions[i]).encode("utf-8")
-            txt_info = tarfile.TarInfo(name=f"{key}.txt")
-            txt_info.size = len(caption_bytes)
-            tar.addfile(txt_info, fileobj=io.BytesIO(caption_bytes))
-
-            meta = json.dumps({"url": urls[i], "caption": captions[i], "key": key}).encode("utf-8")
-            json_info = tarfile.TarInfo(name=f"{key}.json")
-            json_info.size = len(meta)
-            tar.addfile(json_info, fileobj=io.BytesIO(meta))
+            sink.write({
+                "__key__": f"{shard_id}_{i:06d}",
+                "jpg": jpeg_list[i],
+                "txt": str(captions[i]),
+                "json": {"url": urls[i], "caption": captions[i]},
+            })
 
     return {"shard_id": [shard_id], "success_count": [num_images], "total_count": [num_images]}
 
@@ -177,6 +167,6 @@ def parquet_to_webdataset_ray(
     num_shards = len(results)
     total_attempted = max_entries if max_entries is not None else total_success
     success_rate = (total_success / total_attempted * 100) if total_attempted > 0 else 0
-    print(f"\n✓ Download complete: {total_success} images in {num_shards} shards ({success_rate:.1f}% success rate)")
+    logger.info(f"Download complete: {total_success} images in {num_shards} shards ({success_rate:.1f}% success rate)")
 
     return {"total_success": total_success, "total_attempted": total_attempted, "num_shards": num_shards}

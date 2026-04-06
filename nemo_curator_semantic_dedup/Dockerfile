@@ -48,7 +48,9 @@ RUN uv pip install --system \
     pandas \
     pyarrow \
     huggingface_hub \
-    transformers
+    transformers \
+    webdataset \
+    pydantic-settings
 
 # Set environment variable for model directory
 ENV MODEL_DIR=/home/ray/model_weights

@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
 import os
 import shutil
-from pathlib import Path
-import time
+from functools import partial
 
-from helper import parquet_to_webdataset_ray
+from loguru import logger
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from helper import image_download_batch, process_image, write_tar_batch
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -34,41 +34,23 @@ from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 
-@dataclass
-class Config:
+class Config(BaseSettings):
     """Configuration loaded from environment variables."""
-    input_parquet: str
-    input_wds_dataset_dir: str
-    output_dataset_dir: str
-    embeddings_dir: str
-    removal_parquets_dir: str
-    model_dir: str
-    entries_per_tar: int
-    max_entries: int | None
-    tar_files_per_partition: int
-    batch_size: int
-    embedding_batch_size: int
-    reader_cpus_per_task: int
 
-    @classmethod
-    def from_env(cls) -> "Config":
-        """Load configuration from environment variables."""
-        max_entries_str = os.environ.get("MAX_ENTRIES")
-        
-        return cls(
-            input_parquet=os.environ["INPUT_PARQUET"],
-            input_wds_dataset_dir=os.environ["INPUT_WDS_DIR"],
-            output_dataset_dir=os.environ["OUTPUT_DIR"],
-            embeddings_dir=os.environ["EMBEDDINGS_DIR"],
-            removal_parquets_dir=os.environ["REMOVAL_DIR"],
-            model_dir=os.environ.get("MODEL_DIR", "/home/ray/model_weights"),
-            entries_per_tar=int(os.environ.get("ENTRIES_PER_TAR", "1000")),
-            max_entries=int(max_entries_str) if max_entries_str else None,
-            tar_files_per_partition=int(os.environ.get("TAR_FILES_PER_PARTITION", "1")),
-            batch_size=int(os.environ.get("BATCH_SIZE", "100")),
-            embedding_batch_size=int(os.environ.get("EMBEDDING_BATCH_SIZE", "32")),
-            reader_cpus_per_task=int(os.environ.get("READER_CPUS_PER_TASK", "8")),
-        )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    input_parquet: str
+    input_wds_dir: str
+    output_dir: str
+    embeddings_dir: str
+    removal_dir: str
+    model_dir: str = "/home/ray/model_weights"
+    entries_per_tar: int = 1000
+    max_entries: int | None = None
+    tar_files_per_partition: int = 1
+    batch_size: int = 100
+    embedding_batch_size: int = 32
+    reader_cpus_per_task: int = 8
 
 
 def _make_reader(config: Config) -> ImageReaderStage:
@@ -83,6 +65,8 @@ def _make_reader(config: Config) -> ImageReaderStage:
     """
     reader = ImageReaderStage(batch_size=config.batch_size, num_gpus_per_worker=0)
     reader.resources.cpus = config.reader_cpus_per_task
+    # Request a tiny GPU fraction to force placement on GPU nodes
+    # (without this, readers land on small cpu-downloader nodes)
     reader.resources.gpus = 0.01
     return reader
 
@@ -92,7 +76,7 @@ def create_image_embedding_pipeline(config: Config) -> Pipeline:
     pipeline = Pipeline(name="image_embedding")
 
     pipeline.add_stage(FilePartitioningStage(
-        file_paths=config.input_wds_dataset_dir,
+        file_paths=config.input_wds_dir,
         files_per_partition=config.tar_files_per_partition,
         file_extensions=[".tar"],
     ))
@@ -116,10 +100,17 @@ def create_embedding_deduplication_workflow(config: Config) -> Pipeline:
     """Create semantic deduplication workflow using K-means + DBSCAN."""
     return SemanticDeduplicationWorkflow(
         input_path=config.embeddings_dir,
-        output_path=config.removal_parquets_dir,
+        output_path=config.removal_dir,
+        # Must match column names written by ConvertImageBatchToDocumentBatchStage
         id_field="image_id",
         embedding_field="embedding",
+        # Number of K-means clusters — controls the size of each pairwise
+        # comparison group. More clusters = smaller groups = faster pairwise
+        # but coarser semantic grouping. 100 is a reasonable default for ~10M images.
         n_clusters=100,
+        # Cosine similarity threshold for marking duplicates. Pairs with
+        # similarity >= (1 - eps) are considered duplicates. 0.01 means
+        # images must be >= 99% similar to be flagged.
         eps=0.01,
     )
 
@@ -129,7 +120,7 @@ def create_image_deduplication_pipeline(config: Config) -> Pipeline:
     pipeline = Pipeline(name="image_deduplication")
 
     pipeline.add_stage(FilePartitioningStage(
-        file_paths=config.input_wds_dataset_dir,
+        file_paths=config.input_wds_dir,
         files_per_partition=config.tar_files_per_partition,
         file_extensions=[".tar"],
     ))
@@ -137,12 +128,12 @@ def create_image_deduplication_pipeline(config: Config) -> Pipeline:
     pipeline.add_stage(_make_reader(config))
 
     pipeline.add_stage(ImageDuplicatesRemovalStage(
-        removal_parquets_dir=config.removal_parquets_dir + "/duplicates",
+        removal_parquets_dir=config.removal_dir + "/duplicates",
         duplicate_id_field="id",
     ))
 
     pipeline.add_stage(ImageWriterStage(
-        output_dir=config.output_dataset_dir,
+        output_dir=config.output_dir,
         remove_image_data=True,
     ))
 
@@ -151,24 +142,50 @@ def create_image_deduplication_pipeline(config: Config) -> Pipeline:
 
 def main(config: Config) -> None:
     """Main execution function for image semantic deduplication pipeline."""
-    ray_client = RayClient()
-    ray_client.start()
-
     # Clean output directories from previous runs to avoid processing stale data
-    for d in [config.input_wds_dataset_dir, config.embeddings_dir,
-              config.removal_parquets_dir, config.output_dataset_dir]:
+    for d in [config.input_wds_dir, config.embeddings_dir,
+              config.removal_dir, config.output_dir]:
         if os.path.exists(d):
             shutil.rmtree(d)
 
     # Step 1: Download images and create WebDataset tar files
-    os.makedirs(config.input_wds_dataset_dir, exist_ok=True)
-    stats = parquet_to_webdataset_ray(
-        hf_dataset_path=config.input_parquet,
-        output_dir=config.input_wds_dataset_dir,
-        entries_per_tar=config.entries_per_tar,
-        max_entries=config.max_entries,
+    import ray
+    import ray.data
+    from huggingface_hub import HfFileSystem
+
+    os.makedirs(config.input_wds_dir, exist_ok=True)
+
+    ds = ray.data.read_parquet(
+        config.input_parquet,
+        file_extensions=["parquet"],
+        columns=["url", "caption"],
+        filesystem=HfFileSystem(token=os.environ["HF_TOKEN"]),
+        concurrency=10,
     )
-    print(stats)
+
+    if config.max_entries is not None:
+        ds = ds.limit(config.max_entries)
+        ds = ds.repartition(num_blocks=max(100, config.max_entries // 1000))
+
+    cluster_cpus = int(ray.cluster_resources().get("CPU", 4))
+    concurrency = max(4, cluster_cpus)
+
+    ds = ds.map_batches(image_download_batch, batch_size=100, batch_format="numpy")
+    ds = ds.flat_map(process_image)
+
+    # Write tar shards — these become input for the embedding pipeline below
+    results = ds.map_batches(
+        partial(write_tar_batch, output_dir=config.input_wds_dir),
+        batch_size=config.entries_per_tar,
+        batch_format="numpy",
+        concurrency=concurrency,
+    ).take_all()
+
+    total_success = sum(r["success_count"] for r in results)
+    num_shards = len(results)
+    total_attempted = config.max_entries if config.max_entries is not None else total_success
+    success_rate = (total_success / total_attempted * 100) if total_attempted > 0 else 0
+    logger.info(f"Download complete: {total_success} images in {num_shards} shards ({success_rate:.1f}% success rate)")
 
     # Use executors that avoid scheduling on CPU-only head node
     streaming_executor = RayDataExecutor(ignore_head_node=True)
@@ -186,22 +203,7 @@ def main(config: Config) -> None:
     pipeline = create_image_deduplication_pipeline(config)
     pipeline.run(executor=streaming_executor)
 
-    ray_client.stop()
-
-
-def _load_env_file() -> None:
-    """Load variables from .env file if present, without overriding existing env vars."""
-    env_file = Path(__file__).parent / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-
 
 if __name__ == "__main__":
-    _load_env_file()
-    config = Config.from_env()
+    config = Config()
     main(config)
