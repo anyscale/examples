@@ -1,0 +1,44 @@
+# Before submitting, set your Hugging Face token:
+#   export HF_TOKEN=hf_...
+#
+# Then submit with:
+#   anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
+
+name: vla-fine-tuning
+
+image_uri: anyscale/ray:2.54.0-py312-cu129
+
+compute_config:
+  head_node:
+    required_resources:
+      CPU: 8
+      memory: 32Gi
+  worker_nodes:
+    - required_resources:
+        CPU: 8
+        memory: 64Gi
+        GPU: 1
+      required_labels:
+        ray.io/accelerator-type: L40S
+      min_nodes: 8
+      max_nodes: 8
+    - required_resources:
+        CPU: 8
+        memory: 32Gi
+      min_nodes: 16
+      max_nodes: 16
+
+working_dir: .
+
+# When empty, this uses the default Anyscale Cloud in your organization.
+cloud:
+
+env_vars:
+  RAY_TRAIN_V2_ENABLED: "1"
+  RAY_OVERRIDE_JOB_RUNTIME_ENV: "1"
+
+entrypoint: uv run vla.py
+
+max_retries: 0
+
+timeout_s: 86400
