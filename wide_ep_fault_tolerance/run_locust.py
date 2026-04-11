@@ -1,11 +1,17 @@
-"""Run locust load test with a shaped traffic pattern.
+"""Run locust load test against an LLM service.
 
-Traffic shape (14 min total):
-  baseline 2m -> ramp up 4m -> peak 2m -> ramp down 4m -> baseline 2m
+Two traffic patterns:
+  constant  Steady load at --baseline-users (runs indefinitely, Ctrl+C to stop)
+  varying   Shaped 14-min pattern: baseline -> ramp up -> peak -> ramp down -> baseline
 
 Usage:
-    python run_locust.py --host https://my-service.anyscale.com \
-        --token $ANYSCALE_API_TOKEN --baseline-users 10 --peak-users 50
+    # Constant traffic for fault tolerance testing
+    python run_locust.py --host $SERVICE_URL --token $SERVICE_TOKEN \
+        --traffic-pattern constant --baseline-users 10
+
+    # Varying traffic for autoscaling testing
+    python run_locust.py --host $SERVICE_URL --token $SERVICE_TOKEN \
+        --traffic-pattern varying --baseline-users 10 --peak-users 50
 """
 
 import argparse
@@ -27,9 +33,11 @@ def run_locust_headless(
     peak_users: int,
     spawn_rate: int,
     processes: int,
+    traffic_pattern: str,
 ):
-    """Run a single locust headless session with the TrafficShape."""
-    results_file = Path(output_dir) / f"results_b{baseline_users}_p{peak_users}"
+    results_file = (
+        Path(output_dir) / f"results_{traffic_pattern}_b{baseline_users}_p{peak_users}"
+    )
 
     cmd = [
         sys.executable,
@@ -56,22 +64,28 @@ def run_locust_headless(
         str(peak_users),
         "--ramp-rate",
         str(spawn_rate),
+        "--traffic-pattern",
+        traffic_pattern,
     ]
 
     if processes > 1:
         cmd.extend(["--processes", str(processes)])
 
-    print(f"\n{'='*60}")
-    print(
-        f"Traffic shape: baseline={baseline_users}, peak={peak_users}, spawn_rate={spawn_rate}"
-    )
-    print(f"  0:00-2:00  baseline ({baseline_users} users)")
-    print(f"  2:00-6:00  ramp up -> {peak_users} users")
-    print(f"  6:00-8:00  peak ({peak_users} users)")
-    print(f"  8:00-12:00 ramp down -> {baseline_users} users")
-    print(f"  12:00-14:00 baseline ({baseline_users} users)")
+    print(f"\n{'=' * 60}")
+    if traffic_pattern == "constant":
+        print(f"Traffic pattern: constant ({baseline_users} users)")
+        print("  Runs indefinitely — press Ctrl+C to stop")
+    else:
+        print(
+            f"Traffic shape: baseline={baseline_users}, peak={peak_users}, spawn_rate={spawn_rate}"
+        )
+        print(f"  0:00-2:00  baseline ({baseline_users} users)")
+        print(f"  2:00-6:00  ramp up -> {peak_users} users")
+        print(f"  6:00-8:00  peak ({peak_users} users)")
+        print(f"  8:00-12:00 ramp down -> {baseline_users} users")
+        print(f"  12:00-14:00 baseline ({baseline_users} users)")
     print(f"Results: {results_file}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     result = subprocess.run(cmd, capture_output=False)
     return result.returncode
@@ -100,6 +114,13 @@ def main():
         help="Route prefix for the service (default: /v1)",
     )
     parser.add_argument(
+        "--traffic-pattern",
+        type=str,
+        required=True,
+        choices=["constant", "varying"],
+        help="Traffic pattern: 'constant' for steady load, 'varying' for shaped 14-min pattern",
+    )
+    parser.add_argument(
         "--baseline-users",
         type=int,
         default=10,
@@ -109,7 +130,7 @@ def main():
         "--peak-users",
         type=int,
         default=50,
-        help="Peak number of concurrent users (default: 50)",
+        help="Peak number of concurrent users for varying pattern (default: 50)",
     )
     parser.add_argument(
         "--spawn-rate",
@@ -149,15 +170,12 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
 
     print(f"Host: {args.host}")
-    print(
-        f"Traffic shape: baseline={args.baseline_users} -> peak={args.peak_users} -> baseline={args.baseline_users}"
-    )
-    print("Total duration: 14 minutes")
+    print(f"Traffic pattern: {args.traffic_pattern}")
+    if args.traffic_pattern == "varying":
+        print("Total duration: 14 minutes")
     print(f"Output dir: {args.output_dir}")
 
     rc = run_locust_headless(
@@ -172,6 +190,7 @@ def main():
         peak_users=args.peak_users,
         spawn_rate=args.spawn_rate,
         processes=args.processes,
+        traffic_pattern=args.traffic_pattern,
     )
 
     if rc != 0:

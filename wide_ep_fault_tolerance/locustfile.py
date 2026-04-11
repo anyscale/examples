@@ -1,10 +1,8 @@
 """Locust load test for an OpenAI-compatible LLM service.
 
-Traffic shape (14 min total):
-  baseline 2m -> ramp up 4m -> peak 2m -> ramp down 4m -> baseline 2m
-
-Custom CLI args:  --token, --route-prefix, --max-tokens, --prompt,
-                  --baseline-users, --peak-users, --spawn-rate
+Supports two traffic patterns (--traffic-pattern):
+- constant: Steady traffic at --baseline-users (runs indefinitely, Ctrl+C to stop)
+- varying: Shaped 14-min pattern: baseline 2m -> ramp up 4m -> peak 2m -> ramp down 4m -> baseline 2m
 """
 
 import json
@@ -57,28 +55,43 @@ def add_custom_args(parser):
         default=5,
         help="Users spawned/despawned per second during ramps (default: 5)",
     )
+    parser.add_argument(
+        "--traffic-pattern",
+        type=str,
+        required=True,
+        choices=["constant", "varying"],
+        help="Traffic pattern: 'constant' for steady load, 'varying' for shaped 14-min pattern",
+    )
 
 
 class TrafficShape(LoadTestShape):
     """
-    Custom traffic shape:
-      0:00 - 2:00  baseline (steady)
-      2:00 - 6:00  ramp up from baseline to peak
-      6:00 - 8:00  peak (steady)
-      8:00 - 12:00 ramp down from peak to baseline
-      12:00 - 14:00 baseline (steady)
-      14:00        stop
+    Supports two modes based on --traffic-pattern:
+
+    constant:
+      Holds --baseline-users forever (Ctrl+C to stop).
+
+    varying (14-min shaped pattern):
+      0:00  - 2:00   baseline (steady)
+      2:00  - 6:00   ramp up from baseline to peak
+      6:00  - 8:00   peak (steady)
+      8:00  - 12:00  ramp down from peak to baseline
+      12:00 - 14:00  baseline (steady)
+      14:00          stop
     """
 
     def tick(self):
-        run_time = self.get_run_time()
         opts = self.runner.environment.parsed_options
-
         baseline = opts.baseline_users
         peak = opts.peak_users
         spawn_rate = opts.ramp_rate
 
-        # Phase durations in seconds
+        if opts.traffic_pattern == "constant":
+            return baseline, spawn_rate
+
+        # --- varying: 14-min shaped pattern ---
+        run_time = self.get_run_time()
+
         t_baseline1 = 120  # 2 min
         t_ramp_up = 240  # 4 min
         t_peak = 120  # 2 min
@@ -92,33 +105,26 @@ class TrafficShape(LoadTestShape):
         c5 = c4 + t_baseline2
 
         if run_time < c1:
-            # Phase 1: baseline
             return baseline, spawn_rate
         elif run_time < c2:
-            # Phase 2: ramp up
             progress = (run_time - c1) / t_ramp_up
             users = int(baseline + (peak - baseline) * progress)
             return users, spawn_rate
         elif run_time < c3:
-            # Phase 3: peak
             return peak, spawn_rate
         elif run_time < c4:
-            # Phase 4: ramp down
             progress = (run_time - c3) / t_ramp_down
             users = int(peak - (peak - baseline) * progress)
             return users, spawn_rate
         elif run_time < c5:
-            # Phase 5: baseline
             return baseline, spawn_rate
         else:
-            # Done
             return None
 
 
 class LLMUser(HttpUser):
     """Simulates a user sending chat completion requests to an LLM service."""
 
-    # Set to constant(0) for max throughput, or between(1, 3) for realistic pacing
     wait_time = constant(0)
 
     def on_start(self):
