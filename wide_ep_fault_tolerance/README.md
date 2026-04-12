@@ -53,6 +53,14 @@ anyscale service deploy -f fault_tolerance/service.yaml
 anyscale service wait --name wide-ep-fault-tolerance --state RUNNING --timeout-s 600
 ```
 
+If you were to run the demo with DeepSeek-V3, deploy the following service instead. This example requires 2 8xH100 nodes
+with EFA interconnect.
+
+```bash
+anyscale service deploy -f fault_tolerance/deepseek-service.yaml
+anyscale service wait --name wide-ep-fault-tolerance-deepseek --state RUNNING --timeout-s 600
+```
+
 Set `SERVICE_URL` and `SERVICE_TOKEN` from the deploy output:
 
 ```bash
