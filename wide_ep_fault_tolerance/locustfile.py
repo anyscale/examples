@@ -62,6 +62,12 @@ def add_custom_args(parser):
         choices=["constant", "varying"],
         help="Traffic pattern: 'constant' for steady load, 'varying' for shaped 14-min pattern",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="microsoft/Phi-tiny-MoE-instruct",
+        help="Model ID to send in chat completion requests",
+    )
 
 
 class TrafficShape(LoadTestShape):
@@ -133,6 +139,7 @@ class LLMUser(HttpUser):
         self.max_tokens = self.environment.parsed_options.max_tokens
         self.prompt = self.environment.parsed_options.prompt
 
+        self.model = self.environment.parsed_options.model
         self.headers = {"Content-Type": "application/json"}
         if token:
             self.headers["Authorization"] = f"Bearer {token}"
@@ -140,7 +147,7 @@ class LLMUser(HttpUser):
     @task
     def chat_completion(self):
         payload = {
-            "model": "microsoft/Phi-tiny-MoE-instruct",
+            "model": self.model,
             "messages": [{"role": "user", "content": self.prompt}],
             "max_tokens": self.max_tokens,
             "temperature": 0.7,
