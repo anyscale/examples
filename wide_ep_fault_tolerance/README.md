@@ -7,7 +7,7 @@ Check out the [blog post](https://www.anyscale.com/blog/dp-group-fault-tolerance
 ## Install the Anyscale CLI
 
 ```bash
-uv pip install -U anyscale
+pip install -U anyscale
 anyscale login
 ```
 
