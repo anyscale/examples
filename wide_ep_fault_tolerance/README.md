@@ -1,6 +1,6 @@
 # Wide EP Fault Tolerance
 
-Demonstrates data-parallel (DP) group fault tolerance and autoscaling for LLM serving with Ray Serve. Uses gang-scheduled DP deployments where all workers in a DP group are restarted atomically when one fails.
+Demonstrates data-parallel (DP) group fault tolerance and autoscaling for MoE LLM serving with Ray Serve. Uses gang-scheduled DP deployments where all workers in a DP group are restarted atomically when one fails.
 
 Check out the [blog post](https://www.anyscale.com/blog/dp-group-fault-tolerance-vllm-wideep-ray-serve-llm) for a detailed walkthrough of the Wide EP Fault Tolerance feature.
 
@@ -55,7 +55,7 @@ curl -X POST -H "Authorization: Bearer $SERVICE_TOKEN" $SERVICE_URL/simulate-fau
 Observe recovery:
 
 - The **Locust output** shows a brief spike in errors as the affected DP group tears down.
-- The **Ray Serve dashboard** (accessible from the service page) shows replica count drop then recover.
+- The **Service dashboard** shows replica count drop then recover.
 - The surviving DP group continues serving requests throughout.
 
 ## Autoscaling demo
@@ -71,7 +71,7 @@ uv run --with locust --with requests run_locust.py \
     --peak-users 40
 ```
 
-The load test runs a 14-minute shaped traffic pattern (baseline -> ramp up -> peak -> ramp down -> baseline). Watch replica count change in the services tab.
+The load test runs a 14-minute shaped traffic pattern (baseline -> ramp up -> peak -> ramp down -> baseline). The service autoscales when traffic pattern shifts. Watch replica count change in the services tab.
 
 ## Understanding the example
 
