@@ -11,6 +11,12 @@ pip install -U anyscale
 anyscale login
 ```
 
+## Install `uv`
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 ## Deploy the service
 
 Clone the example from GitHub.
