@@ -352,7 +352,7 @@ import ray.train.torch
 #   A100 (80 GB) -- batch_size=4, grad_accum=2.
 train_loop_config = {
     "stats": stats,
-    "num_epochs": 4,
+    "num_epochs": 8,
     "batch_size": 2,
     "grad_accum": 4,
     "lr":         1e-4,
