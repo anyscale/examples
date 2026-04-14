@@ -81,6 +81,7 @@ The load test runs a 14-minute shaped traffic pattern (baseline -> ramp up -> pe
 
 ## Understanding the example
 
+- This example is built with [Ray Serve LLM](https://docs.ray.io/en/latest/serve/llm/index.html), leveraging vLLM as the engine and Ray Serve as the orchestration framework to deploy LLM applications at scale.
 - `service.yaml` deploys `microsoft/Phi-tiny-MoE-instruct` with `data_parallel_size: 2` and `num_replicas: auto` (autoscaling between 1-4 DP groups, 2 ranks per group).
 - `kill_worker_proc.py` is deployed as a separate Ray Serve application at `/simulate-fault`. It uses `nvidia-smi` to find a GPU process on a random worker node and kills it with `SIGKILL`.
 - Ray Serve gang scheduling ensures that if one worker in a DP group fails, the entire group is torn down and restarted together — preventing partial failures from leaving the deployment in an inconsistent state.
