@@ -33,6 +33,10 @@ class LLMDeployment:
         logger.info(f"Downloading {gcs_uri} → {NVME_MODEL_DIR}")
         start = time.time()
         with ObjectStorageModel(model_path=gcs_uri, dst=NVME_MODEL_DIR) as model:
+            # Two calls because runai_streamer's concurrent C++ threads only
+            # apply to safetensors files. Pull them first to get peak throughput
+            # (~4.3 GB/s), then pull everything else (config, tokenizer, etc.)
+            # with a second call using the standard downloader.
             model.pull_files(allow_pattern=["*.safetensors"])
             model.pull_files(ignore_pattern=["*.safetensors"])
         logger.info(f"Model ready at {NVME_MODEL_DIR} ({time.time() - start:.1f}s)")
