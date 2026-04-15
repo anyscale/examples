@@ -13,8 +13,9 @@ compute_config:
     - required_resources:
         CPU: 48
         GPU: 4
-        accelerator: L4
         memory: 192Gi
+      required_labels:
+        ray.io/accelerator-type: L4
       min_nodes: 1
       max_nodes: 2
 
