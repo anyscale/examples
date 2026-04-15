@@ -11,6 +11,9 @@ compute_config:
       advanced_instance_config:
         instanceProperties:
           disks:
+            # `instanceProperties` setting replaces entire disk configuration
+            # We need to declare Boot disk here. Otherwise GCP would try to create a VM with no boot disk and fail.
+            # This overrides Anyscale's default boot disk size.
             - boot: true
               type: PERSISTENT
               initializeParams:
