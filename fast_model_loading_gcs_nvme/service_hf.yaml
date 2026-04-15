@@ -15,12 +15,11 @@ compute_config:
               type: PERSISTENT
               initializeParams:
                 diskSizeGb: 200
-            # 6x NVMe local SSDs (375 GB each = ~2.2 TB total).
+            # 4x NVMe local SSDs (375 GB each = ~1.5 TB total).
+            # a2-highgpu-4g only allows 0, 4, or 8 local SSDs.
             # Anyscale RAIDs and mounts them at /mnt/local_storage.
             # Each disk must be listed separately (GCP API requirement).
             - &nvme {type: SCRATCH, interface: NVME, autoDelete: true, initializeParams: {diskType: local-ssd}}
-            - *nvme
-            - *nvme
             - *nvme
             - *nvme
             - *nvme
