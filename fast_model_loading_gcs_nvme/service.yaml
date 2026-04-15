@@ -2,8 +2,6 @@ name: fast-model-loading
 
 containerfile: ./Dockerfile
 
-# GCP worker nodes with 8x A100 GPUs and 6x 375GB NVMe local SSDs (~2.2 TB).
-# Anyscale RAIDs and mounts the NVMe disks at /mnt/local_storage.
 compute_config:
   worker_nodes:
     - instance_type: a2-highgpu-8g-nvidia-a100-40gb-8
@@ -17,37 +15,15 @@ compute_config:
               type: PERSISTENT
               initializeParams:
                 diskSizeGb: 200
-            # 6x NVMe local SSDs = 6 * 375 GB = 2,250 GB (~2.2 TB)
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
-            - type: SCRATCH
-              interface: NVME
-              autoDelete: true
-              initializeParams:
-                diskType: local-ssd
+            # 6x NVMe local SSDs (375 GB each = ~2.2 TB total).
+            # Anyscale RAIDs and mounts them at /mnt/local_storage.
+            # Each disk must be listed separately (GCP API requirement).
+            - &nvme {type: SCRATCH, interface: NVME, autoDelete: true, initializeParams: {diskType: local-ssd}}
+            - *nvme
+            - *nvme
+            - *nvme
+            - *nvme
+            - *nvme
 
 working_dir: .
 
