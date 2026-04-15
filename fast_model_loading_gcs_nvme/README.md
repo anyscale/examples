@@ -25,47 +25,43 @@ GPU Memory
 
 - [Anyscale CLI](https://docs.anyscale.com/reference/quickstart) installed and logged in
 - An Anyscale cloud on GCP
-- `gcloud` CLI authenticated (for the one-time upload step)
+- `gcloud` CLI authenticated locally (for the one-time upload step)
 
 ## Step 1: Upload model weights to GCS
 
-Run once from any machine with `gcloud` configured:
+Run once from any machine with `gcloud` and `huggingface_hub` installed:
 
 ```bash
-pip install huggingface_hub
-gcloud auth login
-gcloud config set project YOUR_GCP_PROJECT
-
-# Create a bucket in the same region as your Anyscale cloud
 gcloud storage buckets create gs://YOUR_BUCKET --location=us-central1
 
-# Download and upload
-python upload_to_gcs.py
+python -c "
+from pathlib import Path
+from google.cloud.storage import Client, transfer_manager
+from huggingface_hub import snapshot_download
+
+local_dir = snapshot_download(
+    'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
+    allow_patterns=['*.safetensors', '*.json', '*.txt', 'tokenizer*', '*.model'],
+    max_workers=8,
+)
+
+bucket = Client().bucket('YOUR_BUCKET')
+files = [p.relative_to(local_dir).as_posix() for p in Path(local_dir).rglob('*') if p.is_file()]
+transfer_manager.upload_many_from_filenames(
+    bucket, files, source_directory=local_dir,
+    blob_name_prefix='models/DeepSeek-R1-Distill-Llama-70B/', max_workers=8,
+)
+"
 ```
 
-Or manually:
-
-```bash
-huggingface-cli download deepseek-ai/DeepSeek-R1-Distill-Llama-70B \
-    --include "*.safetensors" "*.json" "*.model" \
-    --local-dir /tmp/DeepSeek-R1-Distill-Llama-70B
-
-gcloud storage cp -r /tmp/DeepSeek-R1-Distill-Llama-70B \
-    gs://YOUR_BUCKET/models/DeepSeek-R1-Distill-Llama-70B
-```
-
-> **Tip:** If your bucket is under `$ANYSCALE_ARTIFACT_STORAGE`, pods can access it automatically via workload identity — no credentials needed.
+> **Tip:** If your bucket is under `$ANYSCALE_ARTIFACT_STORAGE`, pods can access it via workload identity — no extra credentials needed.
 
 ## Step 2: Deploy the service
 
 ```bash
 git clone https://github.com/anyscale/examples.git
 cd examples/fast_model_loading_gcs_nvme
-```
 
-Set your GCS URI in `serve.py` or via environment variable:
-
-```bash
 anyscale service deploy -f service.yaml \
     --env GCS_MODEL_URI=gs://YOUR_BUCKET/models/DeepSeek-R1-Distill-Llama-70B
 ```
@@ -82,15 +78,25 @@ The `service.yaml` attaches 6 NVMe local SSDs via `advanced_instance_config`. Ea
 
 ## Step 3: Query the service
 
-The `anyscale service deploy` command outputs:
+The `anyscale service deploy` command outputs a line like:
 ```
 curl -H "Authorization: Bearer <SERVICE_TOKEN>" <BASE_URL>
 ```
 
-Edit `query.py` with your token and URL, then:
-```bash
-pip install openai
-python query.py
+Query with the OpenAI client:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="<BASE_URL>/v1", api_key="<SERVICE_TOKEN>")
+
+for chunk in client.chat.completions.create(
+    model="my-model",
+    messages=[{"role": "user", "content": "What's the capital of France?"}],
+    stream=True,
+):
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
 ```
 
 ## Shutdown
@@ -99,9 +105,9 @@ python query.py
 anyscale service terminate -n fast-model-loading
 ```
 
-## Benchmark results
+## Benchmark
 
-Measured on an A100-40GB node with a 7B model (14.2 GB safetensors):
+Measured on A100-40GB with DeepSeek-R1-Distill-Qwen-7B (14.2 GB safetensors):
 
 | Method | Time | Throughput | Speedup |
 |---|---|---|---|
