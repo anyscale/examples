@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 NVME_MODEL_DIR = "/mnt/local_storage/model"
 
 
-@serve.deployment(ray_actor_options={"num_gpus": 8})
+@serve.deployment(ray_actor_options={"num_gpus": 4})
 class LLMDeployment:
     def __init__(self):
         # Phase 1: GCS → NVMe.

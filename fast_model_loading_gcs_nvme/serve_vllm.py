@@ -21,7 +21,7 @@ load_format = os.environ.get("LOAD_FORMAT", "runai_streamer")
 
 engine_kwargs = dict(
     max_model_len=32768,
-    tensor_parallel_size=8,
+    tensor_parallel_size=4,
 )
 if load_format != "auto":
     engine_kwargs["load_format"] = load_format
