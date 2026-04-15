@@ -1,19 +1,29 @@
 # Fast Model Loading with GCS and NVMe
 
-Deploy a 70B model on Anyscale with fast cold starts using the [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer) to stream safetensor weights from GCS directly to GPU memory.
+Deploy a 70B model on Anyscale with fast cold starts using a two-phase loading strategy: download model weights from GCS to local NVMe SSDs, then load from NVMe to GPU memory.
 
-**Why this matters:** Loading a 70B model (~145 GB) from a persistent disk takes ~8 minutes. The Run:ai streamer uses concurrent C++ threads to stream from GCS at ~3 GB/s or from NVMe at ~4 GB/s — cutting cold starts to under a minute.
+**Why this matters:** Loading a 70B model (~145 GB) from a persistent disk takes ~8 minutes. By caching on NVMe and loading with the [Run:ai Model Streamer](https://github.com/run-ai/runai-model-streamer), cold starts drop to ~36 seconds. Subsequent replicas on the same node skip the download entirely.
 
 ## Architecture
 
 ```
 GCS Bucket (durable, shared)
         │
-        ▼  runai model streamer (concurrent C++ threads, ~3 GB/s)
+        ▼  Phase 1: runai ObjectStorageModel (file-locked, idempotent)
+NVMe SSD (/mnt/local_storage/model)
+        │
+        ▼  Phase 2: runai_streamer (~4.3 GB/s) or HF/safetensors (~1.5 GB/s)
 GPU Memory
 ```
 
-No intermediate disk writes. vLLM's `load_format="runai_streamer"` handles everything — the serve.py is just config.
+**Phase 1** runs once per node via a Ray Serve callback. File locking (`fcntl.flock`) ensures only one process downloads while others wait. A `.runai_complete` sentinel file marks completion so subsequent processes skip the download.
+
+**Phase 2** is handled by vLLM. The `LOAD_FORMAT` env var controls which loader is used:
+
+| `LOAD_FORMAT` | NVMe → GPU throughput | Notes |
+|---|---|---|
+| `runai_streamer` (default) | ~4.3 GB/s | Concurrent C++ threads, fastest |
+| `auto` | ~1.5 GB/s | HuggingFace/safetensors default loader |
 
 ## Prerequisites
 
@@ -60,15 +70,27 @@ anyscale service deploy -f service.yaml \
     --env GCS_MODEL_URI=gs://YOUR_BUCKET/models/DeepSeek-R1-Distill-Llama-70B
 ```
 
+To use the HuggingFace/safetensors loader instead of runai_streamer:
+
+```bash
+anyscale service deploy -f service.yaml \
+    --env GCS_MODEL_URI=gs://YOUR_BUCKET/models/DeepSeek-R1-Distill-Llama-70B \
+    --env LOAD_FORMAT=auto
+```
+
 ### What happens on startup
 
-1. Worker node starts with 6× 375 GB NVMe local SSDs (~2.2 TB at `/mnt/local_storage`).
-2. vLLM uses the Run:ai Model Streamer (`load_format="runai_streamer"`) to stream safetensor shards from GCS directly to GPU memory using concurrent C++ threads.
-3. No disk download step — weights go straight from GCS to GPU.
+1. Worker node starts with 6x 375 GB NVMe local SSDs (~2.2 TB at `/mnt/local_storage`).
+2. **Phase 1 (download):** The `NVMeCacheCallback` fires before vLLM initialization. It uses Run:ai's `ObjectStorageModel` to download all model files from GCS to `/mnt/local_storage/model`. File locking ensures only one process per node downloads; others wait then skip.
+3. **Phase 2 (load):** vLLM loads the model from the local NVMe path. With `runai_streamer` (default), concurrent C++ threads read safetensors at ~4.3 GB/s. With `auto`, the standard HuggingFace loader reads at ~1.5 GB/s.
+
+### Multi-node behavior
+
+Each node has its own local NVMe — no shared storage. When autoscaling adds a new node, it downloads its own copy from GCS. Multiple processes on the _same_ node coordinate via file locks so only one downloads while the rest wait.
 
 ### NVMe configuration
 
-The `service.yaml` attaches 6 NVMe local SSDs via `advanced_instance_config`. Each is 375 GB. Anyscale RAIDs and mounts them at `/mnt/local_storage`. These are useful for caching if you want to pre-download weights for even faster subsequent loads. See [Anyscale NVMe docs](https://docs.anyscale.com/configuration/compute/gcp#nvme) for details.
+The `service.yaml` attaches 6 NVMe local SSDs via `advanced_instance_config`. Each is 375 GB. Anyscale RAIDs and mounts them at `/mnt/local_storage`. See [Anyscale NVMe docs](https://docs.anyscale.com/configuration/compute/gcp#nvme) for details.
 
 ## Step 3: Query the service
 
@@ -111,10 +133,15 @@ Measured on A100-SXM4-40GB with DeepSeek-R1-Distill-Qwen-7B (14.2 GB safetensors
 
 | Speedup vs PD baseline | PD | NVMe | GCS |
 |---|---|---|---|
-| `safetensors.load_file` | 1.0× | 4.6× | n/a |
-| **`runai model streamer`** | 1.0× | **13.4×** | **10.0×** |
-| `ray.anyscale.safetensors` | n/a | n/a | 5.8× |
+| `safetensors.load_file` | 1.0x | 4.6x | n/a |
+| **`runai model streamer`** | 1.0x | **13.4x** | **10.0x** |
+| `ray.anyscale.safetensors` | n/a | n/a | 5.8x |
 
-The Run:ai streamer's concurrent C++ threads saturate both NVMe bandwidth and GCS network throughput far better than single-threaded mmap or Python-based downloaders. On persistent disk, all loaders hit the same ~0.32 GB/s ceiling (disk-bound).
+For a 70B model (~145 GB):
 
-For a 70B model (~145 GB), estimated cold-start: **~48s from GCS**, **~36s from NVMe**.
+| Phase | Time | Notes |
+|---|---|---|
+| GCS → NVMe download | ~48s | First replica on a node only |
+| NVMe → GPU (runai_streamer) | ~36s | Every replica |
+| NVMe → GPU (HF/safetensors) | ~100s | Every replica |
+| **Total first cold start** | **~84s** (runai) / **~148s** (HF) | Subsequent replicas skip download |
