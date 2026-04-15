@@ -1,0 +1,39 @@
+name: fast-model-loading-hf
+
+containerfile: ./Dockerfile
+
+compute_config:
+  worker_nodes:
+    - instance_type: a2-highgpu-4g-nvidia-a100-40gb-4
+      min_nodes: 0
+      max_nodes: 4
+      market_type: PREFER_SPOT
+      advanced_instance_config:
+        instanceProperties:
+          disks:
+            # `instanceProperties` setting replaces entire disk configuration
+            # We need to declare Boot disk here. Otherwise GCP would try to create a VM with no boot disk and fail.
+            # This overrides Anyscale's default boot disk size.
+            - boot: true
+              type: PERSISTENT
+              initializeParams:
+                diskSizeGb: 200
+            # 4x NVMe local SSDs (375 GB each = ~1.5 TB total).
+            # NVMe is high-performance local flash storage (~4 GB/s read/write),
+            # much faster than persistent disk (~0.3 GB/s). We use it as a cache
+            # layer: Phase 1 writes model weights from GCS to NVMe, Phase 2 reads
+            # them from NVMe into GPU memory at full NVMe bandwidth.
+            # a2-highgpu-4g only allows 0, 4, or 8 local SSDs.
+            # Anyscale RAIDs and mounts them at /mnt/local_storage.
+            # Each disk must be listed separately (GCP API requirement).
+            - &nvme {type: SCRATCH, interface: NVME, autoDelete: true, initializeParams: {diskType: local-ssd}}
+            - *nvme
+            - *nvme
+            - *nvme
+
+working_dir: .
+
+cloud:
+
+applications:
+- import_path: serve_hf:app
