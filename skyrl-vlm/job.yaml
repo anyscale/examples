@@ -76,9 +76,9 @@ entrypoint: |
     trainer.run_name="geometry3k_vlm" \
     trainer.resume_mode=null \
     trainer.log_path="/tmp/skyrl-logs" \
-    trainer.export_path="/mnt/cluster_storage/geometry3k_vlm/exports" \
+    trainer.export_path="/mnt/cluster_storage/geometry3k_vlm/artifacts/exports" \
     trainer.dump_eval_results=true \
-    trainer.ckpt_path="/mnt/cluster_storage/geometry3k_vlm/checkpoints"
+    trainer.ckpt_path="/mnt/cluster_storage/geometry3k_vlm/artifacts/exports"
 
 # If there is an error, do not retry.
 max_retries: 0
