@@ -6,10 +6,22 @@ name: skyrl-vlm-geometry3k
 # so the uv venv's pinned ray==2.51.1 matches the cluster Ray exactly.
 containerfile: ./Dockerfile
 
-# p5.48xlarge = 8x H100 (80GB). Matches NUM_GPUS=8 in run_geometry3k.sh.
+# Requests a single worker node with 8x H100 GPUs.
+# Because VLM training is memory intensive, it recommended to use high-memory GPUs.
 compute_config:
+  head_node:
+    required_resources:
+      CPU: 4
+      memory: 8Gi
+
   worker_nodes:
-    - instance_type: p5.48xlarge
+    - name: h100-workers
+      required_resources:
+        CPU: 180
+        memory: 1800Gi
+        GPU: 8
+      required_labels:
+        ray.io/accelerator-type: H100
       min_nodes: 1
       max_nodes: 1
 

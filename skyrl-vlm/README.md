@@ -32,7 +32,7 @@ anyscale job submit -f job.yaml
 
 - The entrypoint first runs `examples/train/geometry3k/geometry_3k_dataset.py` to materialize the dataset under `/mnt/cluster_storage/data/geometry_3k`. The `/mnt/cluster_storage/` directory is an ephemeral shared filesystem attached to the cluster for the duration of the job, which lets all workers read the parquet files.
 - Training runs via `examples/train/geometry3k/geometry3k_entrypoint.py` rather than SkyRL's `main_base` entrypoint. The geometry3k entrypoint registers a custom `geometry3k` SkyRL-Gym environment (for answer extraction and reward) before launching `BasePPOExp`.
-- The job requests a single `p5.48xlarge` worker (8× H100 80GB). All eight GPUs are colocated for the policy, critic/ref, and vLLM inference engines (`trainer.placement.colocate_all=true`, `generator.inference_engine.num_engines=8`, `tensor_parallel_size=1`).
+- The compute config is declarative and cloud-agnostic: it requests a single worker with 8× H100 GPUs (e.g. an AWS `p5.48xlarge` or GCP `a3-highgpu-8g`) via `required_resources` + `required_labels.ray.io/accelerator-type: H100`. All eight GPUs are colocated for the policy, critic/ref, and vLLM inference engines (`trainer.placement.colocate_all=true`, `generator.inference_engine.num_engines=8`, `tensor_parallel_size=1`).
 - Checkpoints and exports go to `trainer.ckpt_path=$ANYSCALE_ARTIFACT_STORAGE/geometry3k_vlm/artifacts` and add `--with s3fs` (AWS) or `--with gcsfs` (GCP) to the second `uv run` command. Read more about [Anyscale storage options](https://docs.anyscale.com/configuration/storage).
 
 ## Enabling Weights & Biases
