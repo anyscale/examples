@@ -1,4 +1,4 @@
-# Multi-turn GRPO for a Vision-Language Model with SkyRL
+# Multi-turn Multimodal GRPO with SkyRL
 
 This example uses [SkyRL](https://github.com/NovaSky-AI/SkyRL) to run multi-turn GRPO training on the [Geometry-3K](https://huggingface.co/datasets/hiyouga/geometry3k) dataset with the vision-language model `Qwen/Qwen3-VL-8B-Instruct`.
 
