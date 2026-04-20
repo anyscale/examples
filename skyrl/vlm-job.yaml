@@ -2,12 +2,11 @@
 
 name: skyrl-vlm-geometry3k
 
-# Use a custom image that ships Ray 2.51.1 + CUDA 12.8 + SkyRL training deps,
-# so the uv venv's pinned ray==2.51.1 matches the cluster Ray exactly.
 containerfile: ./Dockerfile
 
-# Requests a single worker node with 8x H100 GPUs.
-# Because VLM training is memory intensive, it recommended to use high-memory GPUs.
+# Requests a single worker node with 4x L40S GPUs. To train the larger
+# Qwen3-VL-8B-Instruct instead, bump to 8x H100 (or similar) and raise
+# policy_num_gpus_per_node / num_engines to match.
 compute_config:
   head_node:
     required_resources:
@@ -15,13 +14,12 @@ compute_config:
       memory: 8Gi
 
   worker_nodes:
-    - name: h100-workers
-      required_resources:
-        CPU: 180
-        memory: 1800Gi
-        GPU: 8
+    - required_resources:
+        CPU: 40
+        memory: 300Gi
+        GPU: 4
       required_labels:
-        ray.io/accelerator-type: H100
+        ray.io/accelerator-type: L40S
       min_nodes: 1
       max_nodes: 1
 
@@ -38,7 +36,8 @@ env_vars:
   RAY_worker_register_timeout_seconds: "600"
 
 # Generate the Geometry-3K dataset, then run multi-turn GRPO training on
-# Qwen3-VL-8B-Instruct. 
+# Qwen3-VL-2B-Instruct. Swap to Qwen/Qwen3-VL-8B-Instruct for the larger model
+# (needs more GPUs/memory — see the compute_config comment above).
 entrypoint: |
   cd $HOME/SkyRL && \
   uv run --isolated examples/train/geometry3k/geometry_3k_dataset.py --output_dir $DATA_DIR && \
@@ -48,13 +47,13 @@ entrypoint: |
     data.train_data="['$DATA_DIR/train.parquet']" \
     data.val_data="['$DATA_DIR/val.parquet']" \
     trainer.algorithm.advantage_estimator="grpo" \
-    trainer.policy.model.path="Qwen/Qwen3-VL-8B-Instruct" \
+    trainer.policy.model.path="Qwen/Qwen3-VL-2B-Instruct" \
     trainer.placement.colocate_all=true \
     trainer.strategy=fsdp2 \
-    trainer.placement.policy_num_gpus_per_node=8 \
-    trainer.placement.critic_num_gpus_per_node=8 \
-    trainer.placement.ref_num_gpus_per_node=8 \
-    generator.inference_engine.num_engines=8 \
+    trainer.placement.policy_num_gpus_per_node=4 \
+    trainer.placement.critic_num_gpus_per_node=4 \
+    trainer.placement.ref_num_gpus_per_node=4 \
+    generator.inference_engine.num_engines=4 \
     generator.inference_engine.tensor_parallel_size=1 \
     trainer.epochs=6 \
     trainer.eval_batch_size=256 \
@@ -86,9 +85,9 @@ entrypoint: |
     trainer.run_name="geometry3k_vlm" \
     trainer.resume_mode=null \
     trainer.log_path="/tmp/skyrl-logs" \
-    trainer.export_path="/mnt/cluster_storage/geometry3k_vlm/artifacts/exports" \
+    trainer.export_path="$ANYSCALE_ARTIFACT_STORAGE/skyrl_vlm_exports" \
     trainer.dump_eval_results=true \
-    trainer.ckpt_path="/mnt/cluster_storage/geometry3k_vlm/artifacts/exports"
+    trainer.ckpt_path="$ANYSCALE_ARTIFACT_STORAGE/skyrl_vlm_checkpoints"
 
 # If there is an error, do not retry.
 max_retries: 0
