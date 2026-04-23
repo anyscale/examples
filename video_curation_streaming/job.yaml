@@ -1,0 +1,39 @@
+name: video-curation-streaming
+
+image_uri: anyscale/image/video-curation:2
+
+compute_config:
+  head_node:
+    required_resources:
+      CPU: 8
+      memory: 32Gi
+  worker_nodes:
+    # GPU workers: one Qwen2.5-VL-3B replica per A10G (24 GB).
+    - name: gpu-workers
+      required_resources:
+        CPU: 32
+        memory: 128Gi
+        GPU: 1
+      required_labels:
+        ray.io/accelerator-type: A10G
+      min_nodes: 12
+      max_nodes: 16
+    # CPU workers host the mp4 read buffer, scene-detect, and CLIP workers.
+    - name: cpu-workers
+      required_resources:
+        CPU: 32
+        memory: 256Gi
+      resources:
+        cpu_only: 100
+      min_nodes: 3
+      max_nodes: 8
+
+working_dir: .
+
+# When empty, this uses the default Anyscale Cloud in your organization.
+cloud:
+
+entrypoint: python video_curation.py ${FULL_DATASET:+--full-dataset} --num-videos ${NUM_VIDEOS:-20}
+
+max_retries: 0
+timeout_s: 86400
