@@ -174,7 +174,7 @@ def main():
         columns=["mp4"],
         file_extensions=["parquet"],
         filesystem=hffs,
-        ray_remote_args={"resources": {"cpu_only": 0.001}},
+        ray_remote_args={"label_selector": {"cpu_only": "true"}},
     )
     # ds.limit(N) returns at most N rows; if N exceeds the dataset's actual
     # row count Ray Data simply yields everything available, so a too-large
