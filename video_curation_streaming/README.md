@@ -55,7 +55,7 @@ cd examples/video_curation_streaming
 Pass your Hugging Face token to the job using the `--env` flag to enable dataset access.
 
 ```bash
-export HF_TOKEN=hf_xxx
+export HF_TOKEN=hf_...
 
 # Run the job on 20 videos
 anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=20
