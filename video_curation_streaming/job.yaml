@@ -21,8 +21,8 @@ compute_config:
     - required_resources:
         CPU: 32
         memory: 256Gi
-      required_labels:
-        cpu_only: "true"
+      resources:
+        cpu_only: 100
       min_nodes: 3
       max_nodes: 8
 
