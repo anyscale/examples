@@ -4,11 +4,10 @@ This example builds a multimodal video curation pipeline with [Ray Data](https:/
 
 ![Typical video curation pipeline](assets/img0.png)
 
-Inspired by [NVIDIA NeMo Curator](https://github.com/NVIDIA-NeMo/Curator) and [Cosmos-Curate](https://github.com/nvidia-cosmos/cosmos-curate).
 
 ## Pipeline
 
-Videos are streamed directly from [HuggingFaceFV/finevideo](https://huggingface.co/datasets/HuggingFaceFV/finevideo), no local prefetch. Rows fan out per-video into per-clip and stream to parquet:
+Videos are streamed directly from the [HuggingFaceFV/finevideo](https://huggingface.co/datasets/HuggingFaceFV/finevideo) dataset, eliminating the need for local prefetching. Each video is split on-the-fly into multiple clips, which are then streamed, processed, and written to Parquet format.
 
 ```
 HF parquet (mp4 bytes)
@@ -33,13 +32,11 @@ The key idea is **streaming execution with heterogeneous resources**. Traditiona
 
 ![Video curation pipeline with Ray Data](assets/img2.png)
 
-Ray Data's streaming executor places each operator on the right node type, flows data block-by-block between them, and applies backpressure automatically.
+[Ray Data's](https://docs.ray.io/en/latest/data/data.html) streaming executor places each operator on the right node type, flows data block-by-block between them, and applies backpressure automatically.
 
 ![Heterogeneous scheduling with Ray Data](assets/img3.png)
 
-## Run
-
-FineVideo is a gated [HuggingFace](https://huggingface.co/datasets/HuggingFaceFV/finevideo) dataset, so `HF_TOKEN` is mandatory. And use the flag `FULL_DATASET` if you wish to run it on the full dataset:
+## Install the Anyscale CLI
 
 ```bash
 pip install -U anyscale
@@ -54,17 +51,24 @@ cd examples/video_curation_streaming
 ```
 ## Submit the job
 
+FineVideo is a gated [Hugging Face](https://huggingface.co/datasets/HuggingFaceFV/finevideo) dataset, so you **must** set the `HF_TOKEN` environment variable.  
+Pass your Hugging Face token to the job using the `--env` flag to enable dataset access.
+
 ```bash
 export HF_TOKEN=hf_xxx
 
-# 20 videos (default)
-anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
-
-# 10000 videos
-anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=10000
-
-# Full dataset (~44K videos, ignores NUM_VIDEOS)
-anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env FULL_DATASET=1
+# Run the job on 20 videos
+anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=20
 ```
 
-Models (Qwen2.5-VL-3B-Instruct, CLIP ViT-B/32) are public and downloaded from HF automatically. Curated parquet lands in `/mnt/shared_storage/finevideo/curated/streaming_<timestamp>/`.
+To run the job on the full dataset, simply omit the `NUM_VIDEOS` flag. 
+
+**Models used:**
+- [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct)
+- [CLIP ViT-B/32](https://huggingface.co/sentence-transformers/clip-ViT-B-32)
+
+Both models are public and automatically downloaded from Hugging Face.
+
+**Output:**  
+Curated parquet files are saved to  
+`/mnt/shared_storage/finevideo/curated/streaming_<timestamp>/`

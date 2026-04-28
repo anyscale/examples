@@ -17,7 +17,7 @@ ARCHITECTURE
     |  bytes)   |       |                   |       |  + embed) |
     +-----------+       +-------------------+       +-----------+
                          |
-                         | CPU stages (autoscaling r5.8xlarge):
+                         | CPU stages (autoscaling):
                          |   0. HF parquet stream (read_parquet,
                          |      pinned to cpu_only workers)
                          |   1. Fused CPU xform: scene detect +
@@ -51,14 +51,11 @@ END-TO-END DATA FLOW
   clip rows      -> write_parquet                        (to shared storage)
 
 Usage:
-  # Local (2+ GPU workspace):
-  HF_TOKEN=... python video_curation.py --num-videos 20
+  # Anyscale job (cluster shape from job.yaml) on 20 videos:
+  anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=20
 
-  # Anyscale job (cluster shape from job.yaml):
-  anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=1000
-
-  # Full HuggingFaceFV/finevideo dataset (~44K videos):
-  anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env FULL_DATASET=1
+  # To run the job on the full dataset, simply omit the `NUM_VIDEOS` flag:
+  anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN
 """
 
 import argparse
@@ -99,19 +96,6 @@ logger = logging.getLogger("video_curation_streaming")
 
 HF_DATA_URL = "hf://datasets/HuggingFaceFV/finevideo"
 
-
-def compute_resource_split(total_gpus: int) -> tuple[int, int]:
-    """Pick VLM replicas and CLIP actor-pool size from the cluster's GPU count.
-
-    Qwen2.5-VL-3B on A10G is the compute bottleneck, so every GPU runs one
-    VLM replica. CLIP ViT-B/32 runs on a CPU actor pool sized 2:1 vs VLMs so
-    it never becomes the tail once VLM output drains through.
-    """
-    num_vlm = total_gpus
-    num_clip_cpu = max(8, num_vlm * 2)
-    return num_vlm, num_clip_cpu
-
-
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -122,11 +106,15 @@ def main():
     parser.add_argument(
         "--output-dir", default="/mnt/shared_storage/finevideo/curated"
     )
-    parser.add_argument("--num-videos", type=int, default=20)
     parser.add_argument(
-        "--full-dataset",
-        action="store_true",
-        help="Ignore --num-videos and run on the entire HF dataset.",
+        "--num-videos",
+        type=int,
+        default=None,
+        help=(
+            "Cap the number of input videos. If omitted, the entire HF "
+            "dataset is processed. Values larger than the dataset size are "
+            "silently clamped to the available rows by ds.limit() — no failure."
+        ),
     )
     args = parser.parse_args()
 
@@ -147,7 +135,8 @@ def main():
         )
         sys.exit(1)
 
-    num_vlm, num_clip_cpu = compute_resource_split(total_gpus)
+    num_vlm = total_gpus
+    num_clip_cpu = max(8, num_vlm * 2)
     hffs = HfFileSystem(token=hf_token)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -158,7 +147,7 @@ def main():
     logger.info("=" * 60)
     logger.info(f"  Source:     {HF_DATA_URL}")
     logger.info(
-        f"  Videos:     {'ALL (full dataset)' if args.full_dataset else args.num_videos}"
+        f"  Videos:     {'ALL (full dataset)' if args.num_videos is None else args.num_videos}"
     )
     logger.info(f"  GPUs:       {num_vlm} VLM (1 per GPU)")
     logger.info(f"  CPU actors: {num_clip_cpu} CLIP")
@@ -187,7 +176,10 @@ def main():
         filesystem=hffs,
         ray_remote_args={"resources": {"cpu_only": 0.001}},
     )
-    if not args.full_dataset:
+    # ds.limit(N) returns at most N rows; if N exceeds the dataset's actual
+    # row count Ray Data simply yields everything available, so a too-large
+    # --num-videos is a no-op rather than a failure.
+    if args.num_videos is not None:
         ds = ds.limit(args.num_videos)
 
     # ======================================================================
@@ -227,7 +219,7 @@ def main():
     # CUDA graphs (enforce_eager=False) amortize the ~100s capture cost
     # only for large runs; sub-200-clip runs stay eager.
     # ======================================================================
-    estimated_clips = (args.num_videos * 10) if not args.full_dataset else 10**6
+    estimated_clips = (args.num_videos * 10) if args.num_videos is not None else 10**6
     use_eager = estimated_clips < 200
     vlm_processor = build_processor(
         vLLMEngineProcessorConfig(
@@ -268,13 +260,11 @@ def main():
     # OUTPUT: same row + {embedding: np.ndarray(512)}; keyframe_bytes_list
     #         is dropped after use so rows flowing to write are text + embed.
     # Fan-out: 1:1.
-    # Actors run on CPU (num_gpus=0) so all GPUs stay on VLM.
     # ======================================================================
     ds = ds.map_batches(
         CLIPEmbedder,
         batch_size=CLIP_BATCH_SIZE,
         num_cpus=2,
-        num_gpus=0,
         compute=ray.data.ActorPoolStrategy(size=num_clip_cpu),
     )
 
@@ -292,7 +282,7 @@ def main():
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 60)
     logger.info(f"  Time:         {total_time:.1f}s")
-    logger.info(f"  Input videos: {'ALL' if args.full_dataset else args.num_videos}")
+    logger.info(f"  Input videos: {'ALL' if args.num_videos is None else args.num_videos}")
     logger.info(f"  Output:       {output_path}")
     logger.info("=" * 60)
 
