@@ -32,7 +32,7 @@ The key idea is **streaming execution with heterogeneous resources**. Traditiona
 
 ![Video curation pipeline with Ray Data](assets/img1.png)
 
-[Ray Data's](https://docs.ray.io/en/latest/data/data.html) streaming executor places each operator on the right node type, flows data block-by-block between them, and applies backpressure automatically.
+[Ray Data](https://docs.ray.io/en/latest/data/data.html) executes each operation on the specified compute type, streams data block-by-block between operatins, and applies backpressure automatically.
 
 ![Heterogeneous scheduling with Ray Data](assets/img2.png)
 
@@ -51,7 +51,7 @@ cd examples/video_curation_streaming
 ```
 ## Submit the job
 
-FineVideo is a gated [Hugging Face](https://huggingface.co/datasets/HuggingFaceFV/finevideo) dataset, so you **must** set the `HF_TOKEN` environment variable.  
+[FineVideo](https://huggingface.co/datasets/HuggingFaceFV/finevideo) is a gated Hugging Face dataset, so you **must** set the `HF_TOKEN` environment variable.  
 Pass your Hugging Face token to the job using the `--env` flag to enable dataset access.
 
 ```bash
@@ -63,12 +63,7 @@ anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=20
 
 To run the job on the full dataset, simply omit the `NUM_VIDEOS` flag. 
 
-**Models used:**
-- [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct)
-- [CLIP ViT-B/32](https://huggingface.co/sentence-transformers/clip-ViT-B-32)
+## Understanding the example
 
-Both models are public and automatically downloaded from Hugging Face.
-
-**Output:**  
-Curated parquet files are saved to  
-`/mnt/shared_storage/finevideo/curated/streaming_<timestamp>/`
+- This example uses two models: [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) for semantic understanding and [CLIP ViT-B/32](https://huggingface.co/sentence-transformers/clip-ViT-B-32) for embedding computations. Both models are public and automatically downloaded from Hugging Face.
+- This workload creates curated parquet files that are saved to `/mnt/shared_storage/finevideo/curated/streaming_<timestamp>/`.
