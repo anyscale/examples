@@ -30,11 +30,11 @@ Each `.py` file has per-stage IO comments, see [`video_curation.py`](video_curat
 
 The key idea is **streaming execution with heterogeneous resources**. Traditional staged pipelines run one stage at a time, GPUs sit idle during CPU stages. This pipeline chains all five stages so CPU and GPU work run concurrently:
 
-![Video curation pipeline with Ray Data](assets/img2.png)
+![Video curation pipeline with Ray Data](assets/img1.png)
 
 [Ray Data's](https://docs.ray.io/en/latest/data/data.html) streaming executor places each operator on the right node type, flows data block-by-block between them, and applies backpressure automatically.
 
-![Heterogeneous scheduling with Ray Data](assets/img3.png)
+![Heterogeneous scheduling with Ray Data](assets/img2.png)
 
 ## Install the Anyscale CLI
 
