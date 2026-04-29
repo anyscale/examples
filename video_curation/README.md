@@ -47,7 +47,7 @@ anyscale login
 
 ```bash
 git clone https://github.com/anyscale/examples.git
-cd examples/video_curation_streaming
+cd examples/video_curation
 ```
 ## Submit the job
 
