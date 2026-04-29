@@ -32,7 +32,7 @@ The key idea is **streaming execution with heterogeneous resources**. Traditiona
 
 ![Video curation pipeline with Ray Data](assets/img1.png)
 
-[Ray Data](https://docs.ray.io/en/latest/data/data.html) executes each operation on the specified compute type, streams data block-by-block between operatins, and applies backpressure automatically.
+[Ray Data](https://docs.ray.io/en/latest/data/data.html) executes each operation on the specified compute type, streams data block-by-block between operations, and applies backpressure automatically.
 
 ![Heterogeneous scheduling with Ray Data](assets/img2.png)
 
