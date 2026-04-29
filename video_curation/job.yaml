@@ -1,4 +1,4 @@
-name: video-curation-streaming
+name: video-curation
 
 containerfile: ./Dockerfile
 

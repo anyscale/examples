@@ -25,7 +25,7 @@ import torch
 from decord import VideoReader, cpu as decord_cpu
 from PIL import Image
 
-logger = logging.getLogger("video_curation_streaming")
+logger = logging.getLogger("video_curation")
 
 
 # ===========================================================================
