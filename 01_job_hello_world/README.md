@@ -53,4 +53,4 @@ anyscale job submit -f job.yaml
 
 ## 3. Inspect the results
 
-Navigate to the Anyscale [**Jobs** page](https://console.anyscale.com/v2/cld_kvedZWag2qA8i5BjxUevf5i7/prj_cz951f43jjdybtzkx1s5sjgz99/jobs) and take a look at the results.
+Navigate to the Anyscale [**Jobs** page](https://console.anyscale.com/jobs) and take a look at the results.

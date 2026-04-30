@@ -57,4 +57,4 @@ print(resp.text)
 
 ## 4. Monitor the service
 
-Navigate over to the Anyscale [**Services** page](https://console.anyscale.com/v2/cld_kvedZWag2qA8i5BjxUevf5i7/prj_cz951f43jjdybtzkx1s5sjgz99/services?sortColumn=status&sortOrder=DESC) and check up on your deployment.
+Navigate over to the Anyscale [**Services** page](https://console.anyscale.com/services) and check up on your deployment.
