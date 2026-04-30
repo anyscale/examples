@@ -1,4 +1,3 @@
-
 # Get started with jobs
 
 Run discrete workloads in production such as batch inference, bulk embeddings generation, or model fine-tuning.
