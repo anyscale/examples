@@ -61,7 +61,7 @@ export HF_TOKEN=hf_...
 anyscale job submit -f job.yaml --env HF_TOKEN=$HF_TOKEN --env NUM_VIDEOS=20
 ```
 
-To run the job on the full dataset, simply omit the `NUM_VIDEOS` flag. 
+To run the job on the full dataset, simply omit the `NUM_VIDEOS` flag.
 
 ## Understanding the example
 
