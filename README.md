@@ -6,50 +6,8 @@ Each directory is a self-contained example: code, a Dockerfile, and an Anyscale 
 
 ## The map
 
-```mermaid
-flowchart LR
-  subgraph CURATE["1 · Curate"]
-    fineweb["fineweb_dedup<br/>text · Data-Juicer"]
-    imgproc["image_processing<br/>images · vLLM VLM"]
-    vidcur["video_curation<br/>video · Qwen2.5-VL + CLIP"]
-  end
-  subgraph TRAIN["2 · Train"]
-    megatron["megatron_training<br/>Megatron-Bridge SFT"]
-    jax["jax_training<br/>JAX on GPUs"]
-    vla["vla_fine_tuning<br/>PI0.5 robotics VLA"]
-  end
-  subgraph POST["3 · Post-train"]
-    skyrl["skyrl<br/>GRPO · SkyRL"]
-  end
-  subgraph SERVE["4 · Serve"]
-    l8b["deploy_llama_3_8b<br/>vLLM"]
-    l70b["deploy_llama_3_1_70b<br/>multi-GPU TP"]
-    sglang["sglang_inference<br/>multi-node TP×PP"]
-    wideep["wide_ep_fault_tolerance<br/>MoE DP + autoscaling"]
-    tp["serve_tensor_parallel<br/>DeepSpeed TP"]
-    fastload["fast_model_loading_gcs_nvme<br/>NVMe cold starts"]
-    fastvideo["video_generation_with_fastvideo"]
-  end
-  subgraph FOUND["Foundations"]
-    jobhw["job_hello_world"]
-    svchw["service_hello_world"]
-    spark["spark_on_ray<br/>RayDP"]
-    lerobot["lerobot_datasource<br/>Ray Data datasource"]
-  end
+<img width="1504" height="626" alt="image" src="https://github.com/user-attachments/assets/386b3fd0-0a0e-427b-b491-20f00fdca4bc" />
 
-  fineweb --> megatron
-  imgproc -.-> megatron
-  vidcur -.-> megatron
-  vidcur -.-> fastvideo
-  megatron --> skyrl
-  skyrl --> l8b
-  l8b --> l70b --> sglang --> wideep
-  l70b --> fastload
-  l8b -.-> tp
-  lerobot -- "used by" --> vla
-  jobhw -.-> fineweb
-  svchw -.-> l8b
-```
 
 Solid arrows are artifact flow (a corpus, a checkpoint); dashed arrows are conceptual feeds and related approaches. The same map is browsable as an [interactive explorer](#interactive-explorer) with guided journeys, search, and per-example run commands.
 
